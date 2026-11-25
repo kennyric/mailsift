@@ -397,6 +397,17 @@ export async function handleApi(
       pollIntervalSeconds: Number(process.env.POLL_INTERVAL_SECONDS ?? 300),
       mailboxes: mailboxStatuses(store, accounts),
       llmUsage: store.llmUsageToday(),
+      // The discoverability strip and its badge: how much is waiting in the
+      // action centre, without opening it or reading another API.
+      actionCenter: (() => {
+        const tasks = store.tasksSummary();
+        return {
+          tasks: tasks.open,
+          due: tasks.due,
+          followUps: store.followUps(3, 100).length,
+          deadlines: store.deadlines(100).length,
+        };
+      })(),
       outboxPending: store.notificationOutboxPending(),
       attention: store.attentionCount(),
       // What this session may do, so the page offers only what will work.
@@ -902,6 +913,11 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
           <p id="tally" class="tally"></p>
           <p id="status" class="status" role="status" aria-live="polite"></p>
           <button id="health" type="button" class="health-line" aria-haspopup="dialog" aria-controls="health-sheet" aria-expanded="false" hidden></button>
+          <button id="action-peek" type="button" class="action-peek" aria-haspopup="dialog" aria-controls="action-sheet" aria-expanded="false" hidden>
+            <span class="action-peek-icon">${icon('check')}</span>
+            <span id="action-peek-text" class="action-peek-text"></span>
+            <span class="action-peek-arrow">${icon('chevron')}</span>
+          </button>
         </section>
         <form id="filters" class="controls" autocomplete="off">
           <div id="pick-bar" class="pick-bar" hidden>${iconButton('pick-clear', 'x', 'pick.clear')}<span id="pick-count" class="pick-count" role="status"></span><button id="pick-all" type="button" class="text-btn quiet" data-i18n="pick.all">${s('pick.all')}</button><span class="bar-space"></span><div id="pick-actions" class="pick-actions"></div></div>
@@ -910,7 +926,7 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
               ${seg('hours', '24', 'window.24h', true)}${seg('hours', '72', 'window.3d')}${seg('hours', '168', 'window.7d')}${seg('hours', '720', 'window.30d')}
             </fieldset>
             <div id="live-head" class="live-head" hidden>${iconButton('live-back', 'back', 'live.back')}<button id="live-where" type="button" class="live-where" aria-haspopup="dialog" aria-controls="folder-sheet" aria-expanded="false"><span id="live-where-name"></span>${icon('down')}</button></div>
-            ${iconButton('actions-open', 'check', 'action.title', 'aria-haspopup="dialog" aria-controls="action-sheet" aria-expanded="false"')}
+            <button id="actions-open" type="button" class="word-btn action-open" aria-label="${s('action.open')}" title="${s('action.open')}" aria-haspopup="dialog" aria-controls="action-sheet" aria-expanded="false">${icon('check')}<span class="action-label">${s('action.short')}</span><span id="actions-count" class="action-badge" hidden></span></button>
             ${iconButton('folders-open', 'folder', 'folders.title', 'aria-haspopup="dialog" aria-controls="folder-sheet" aria-expanded="false"')}
             <button id="filters-open" type="button" class="text-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="filter-sheet">${s('filter.more')}</button>
           </div>

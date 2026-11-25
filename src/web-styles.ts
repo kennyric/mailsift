@@ -476,6 +476,20 @@ body.offline #refresh,body.offline .load-more{opacity:.4;pointer-events:none}
 .detail .tl-meta{margin:6px 0 0;font-size:12px;color:var(--muted)}.tl-meta dd{overflow-wrap:anywhere}
 
 /* ---- Action centre ---- */
+.action-open{position:relative;display:inline-flex!important;align-items:center;gap:4px;color:var(--text-2)}
+.action-open .icon{width:16px;height:16px;color:var(--accent)}
+.action-label{font-size:12.5px}
+.action-badge{display:inline-block;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:600;line-height:16px;font-family:inherit;text-align:center}
+.action-peek{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;width:calc(100% - 32px);margin:10px 16px 0;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer;box-shadow:var(--card-shadow)}
+.action-peek[hidden]{display:none}
+.action-peek-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:var(--accent-tint);color:var(--accent)}
+.action-peek-icon .icon{width:15px;height:15px;stroke-width:2.2}
+.action-peek-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.action-peek-title{font-size:13.5px;font-weight:600}
+.action-peek-meta{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.action-peek-arrow{display:grid;place-items:center;color:var(--muted)}
+.action-peek-arrow .icon{width:16px;height:16px}
+@media(hover:hover){.action-peek:hover{background:var(--fill)}}
 .action-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:0 0 16px;border-bottom:1px solid var(--line);margin-bottom:6px}
 .action-form input{min-width:0;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--fill);color:var(--text);font:inherit;font-size:15px}
 .action-form input[name=title],.action-form input[name=notes]{grid-column:1/-1}

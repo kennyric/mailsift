@@ -7,8 +7,34 @@ export function actionsPart(): string {
   return String.raw`
 // ---- Action centre ----
 const actionSheet = $('#action-sheet'), actionBody = $('#action-body'), actionOpen = $('#actions-open');
+const actionPeek = $('#action-peek'), actionBadge = $('#actions-count');
 let actionLoading = false;
 let taskDraft = null;
+
+/** Keep the badge and the strip under the title in step with the latest summary. */
+function updateActionPeek(summary) {
+  const counts = summary && summary.actionCenter;
+  if (!counts) return;
+  // "due" is a subset of tasks, not another item.
+  const total = Number(counts.tasks || 0) + Number(counts.followUps || 0) + Number(counts.deadlines || 0);
+  if (actionBadge) {
+    actionBadge.hidden = total === 0;
+    actionBadge.textContent = total > 99 ? '99+' : String(total);
+  }
+  if (!actionPeek) return;
+  actionPeek.hidden = total === 0;
+  const text = $('#action-peek-text');
+  if (!text) return;
+  const bits = [];
+  if (counts.tasks) bits.push(String(counts.tasks) + ' ' + t('action.tasks'));
+  if (counts.followUps) bits.push(String(counts.followUps) + ' ' + t('action.followups'));
+  if (counts.deadlines) bits.push(String(counts.deadlines) + ' ' + t('action.deadlines'));
+  text.replaceChildren(
+    el('span', 'action-peek-title', t('action.title')),
+    el('span', 'action-peek-meta', bits.join(' · ')),
+  );
+}
+if (actionPeek) actionPeek.onclick = openActionCenter;
 
 function actionHeading(text) {
   return el('h3', 'section-label', text);
@@ -100,6 +126,12 @@ async function drawActionCenter() {
     const data = await response.json();
     if (!response.ok) throw new Error((data && data.error) || 'failed');
     actionBody.textContent = '';
+    updateActionPeek({ actionCenter: {
+      tasks: data.counts.open,
+      due: data.counts.due,
+      followUps: data.followUps.length,
+      deadlines: data.deadlines.length,
+    } });
     const redraw = drawActionCenter;
 
     const form = el('form', 'action-form');
@@ -169,5 +201,12 @@ function openTaskFor(row) {
 if (actionOpen) actionOpen.onclick = openActionCenter;
 const actionDone = $('#action-done');
 if (actionDone) actionDone.onclick = () => closeSheet(actionSheet, false);
+// This sheet is created after the generic sheet wiring, so it gets the same
+// dismiss gestures here: swipe the head down, tap the backdrop, or Escape.
+actionSheet.addEventListener('cancel', (event) => { event.preventDefault(); closeSheet(actionSheet, false); });
+actionSheet.addEventListener('click', (event) => {
+  if (event.target === actionSheet) closeSheet(actionSheet, false);
+});
+enableDrag(actionSheet);
 `;
 }

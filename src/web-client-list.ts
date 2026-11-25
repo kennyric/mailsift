@@ -1165,6 +1165,7 @@ async function chrome() {
     const hadSummary = Boolean(lastSummary);
     const downBefore = failingMailboxes().map((m) => m.address).join();
     lastSummary = s;
+    updateActionPeek(s);
     if (s.session) { session = Object.assign({}, session, s.session); sessionChanged(); }
     askForPoll();
     // An empty list picks its words from the summary, which usually lands
