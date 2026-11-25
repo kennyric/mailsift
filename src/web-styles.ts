@@ -22,7 +22,7 @@
 /** Dark tokens adapted from QuotaPulse's neutral surfaces and indigo accent. */
 const DARK_PALETTE = '--bg:#0e1013;--surface:#16191e;--fill:#1e2229;--fill-2:#262b33;--line:#262b33;--line-strong:#3a414d;'
   + '--text:#e9ebef;--text-2:#b4bac5;--muted:#8b95a3;--accent:#7b98f7;--on-accent:#0e1013;--accent-tint:#252c40;'
-  + '--critical:#ef6b6b;--critical-text:#ef6b6b;--warning:#e8a33d;--warning-text:#e8a33d;'
+  + '--critical:#ef6b6b;--critical-text:#ff8a8a;--critical-tint:rgba(239,107,107,.15);--warning:#e8a33d;--warning-text:#f3b85c;--warning-tint:rgba(232,163,61,.15);'
   + '--backdrop:rgba(0,0,0,.5);--shadow-sheet:0 -8px 32px rgba(0,0,0,.5);--shadow-pop:0 8px 24px rgba(0,0,0,.45),0 0 0 1px var(--line);'
   + '--seg-on:#363d49;--switch-off:#6b7482;--ok:#56c48d;--ok-tint:#1b3126;color-scheme:dark';
 export const LIGHT_BAR = '#f4f5f7';
@@ -34,7 +34,7 @@ export function styles(): string {
   return `
 :root{color-scheme:light;--bg:#f4f5f7;--surface:#fff;--fill:#eceef2;--fill-2:#e3e5ea;--line:#e2e4e9;--line-strong:#c3c8d1;
 --text:#15171b;--text-2:#4a505c;--muted:#5a616c;--accent:#3358d4;--on-accent:#fff;--accent-tint:#e1e5f4;
---critical:#d64545;--critical-text:#b03030;--warning:#b86b04;--warning-text:#8c5204;
+--critical:#d64545;--critical-text:#b03030;--critical-tint:#fdecec;--warning:#b86b04;--warning-text:#8c5204;--warning-tint:#fef3e2;
 --backdrop:rgba(21,23,27,.32);--shadow-sheet:0 -8px 32px rgba(21,23,27,.12);--shadow-pop:0 8px 24px rgba(21,23,27,.10);
 --seg-on:#fff;--switch-off:#868e9b;--ok:#1c7a4b;--ok-tint:#dcefe4}
 :root[data-theme=dark]{` + DARK_PALETTE + `}
@@ -727,6 +727,55 @@ a.primary-action{display:inline-flex;align-items:center;justify-content:center;t
 /* On the sign-in form the switch is a quiet word under the button, not a second button. */
 .login .lang{width:auto;margin:20px auto 0;padding:8px;border:0;background:none;color:var(--muted);font-size:13px;cursor:pointer}
 @media(max-height:700px){.login{margin-top:12vh}}
+
+/* ---- Per-device list style presets (html[data-layout=...]) ---- */
+html[data-layout=cards] .day,html[data-layout=digest] .day{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:14px 16px 6px}
+html[data-layout=cards] .group,html[data-layout=digest] .group{padding:0 10px 6px;display:flex;flex-direction:column;gap:8px}
+html[data-layout=cards] .group .row,html[data-layout=digest] .group .row{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;row-gap:3px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+html[data-layout=cards] .group .row.selected,html[data-layout=digest] .group .row.selected{background:var(--accent-tint);border-color:var(--accent)}
+html[data-layout=cards] .group .row.picked,html[data-layout=digest] .group .row.picked{background:var(--accent-tint);border-color:var(--accent)}
+html[data-layout=cards] .detail h3,html[data-layout=digest] .detail h3,html[data-layout=crisp] .detail h3{font-size:21px;font-weight:700;letter-spacing:-.015em;line-height:1.25}
+
+/* Option A: Sender Cards (default) */
+html[data-layout=cards] .who{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
+html[data-layout=cards] .sum{font-size:13.5px;line-height:1.45;color:var(--text-2);margin-top:1px}
+html[data-layout=cards] .meta{margin-top:4px;font-size:12px;line-height:1.5}
+html[data-layout=cards] .lvl.critical{display:inline-block;padding:1px 7px;margin-right:2px;border-radius:999px;font-weight:600;background:var(--critical-tint);color:var(--critical-text)}
+html[data-layout=cards] .lvl.warning{display:inline-block;padding:1px 7px;margin-right:2px;border-radius:999px;font-weight:600;background:var(--warning-tint);color:var(--warning-text)}
+html[data-layout=cards] .why{margin-top:2px;font-size:12.5px}
+
+/* Option B: Summary Digest */
+html[data-layout=digest] .row.critical{border-left:3px solid var(--critical)}
+html[data-layout=digest] .row.warning{border-left:3px solid var(--warning)}
+html[data-layout=digest] .who{font-size:12.5px;font-weight:600;color:var(--text-2)}
+html[data-layout=digest] .when{font-size:12px}
+html[data-layout=digest] .sum{font-size:15.5px;font-weight:600;line-height:1.38;letter-spacing:-.01em;color:var(--text);margin-top:2px}
+html[data-layout=digest] .row.info .sum{color:var(--text)}
+html[data-layout=digest] .row.handled .sum{color:var(--muted);font-weight:500}
+html[data-layout=digest] .meta{margin-top:4px;font-size:12px}
+html[data-layout=digest] .lvl.critical{display:inline-block;padding:1px 7px;margin-right:2px;border-radius:999px;font-weight:600;background:var(--critical-tint);color:var(--critical-text)}
+html[data-layout=digest] .lvl.warning{display:inline-block;padding:1px 7px;margin-right:2px;border-radius:999px;font-weight:600;background:var(--warning-tint);color:var(--warning-text)}
+html[data-layout=digest] .why{margin-top:2px;font-size:12.5px;color:var(--critical-text);font-weight:500}
+
+/* Option C: Crisp List */
+html[data-layout=crisp] .day{padding:9px 16px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:var(--fill);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+html[data-layout=crisp] .group{background:var(--surface)}
+html[data-layout=crisp] .row{padding:12px 16px;row-gap:3px}
+html[data-layout=crisp] .row.selected{background:var(--accent-tint)}
+html[data-layout=crisp] .who{font-size:15px;font-weight:700;letter-spacing:-.01em}
+html[data-layout=crisp] .sum{font-size:13.5px;line-height:1.45;color:var(--text-2)}
+html[data-layout=crisp] .meta{margin-top:2px}
+html[data-layout=crisp] .lvl.critical{display:inline-block;padding:0 6px;margin-right:2px;border-radius:4px;font-weight:600;background:var(--critical-tint);color:var(--critical-text)}
+html[data-layout=crisp] .lvl.warning{display:inline-block;padding:0 6px;margin-right:2px;border-radius:4px;font-weight:600;background:var(--warning-tint);color:var(--warning-text)}
+
+@media(min-width:900px){
+  html[data-layout=cards] .group,html[data-layout=digest] .group{padding:0 12px 8px}
+  html[data-layout=cards] .pick-box,html[data-layout=digest] .pick-box{left:-25px}
+  html[data-layout=cards] .day,html[data-layout=digest] .day,html[data-layout=crisp] .day{padding-left:12px;padding-right:12px}
+}
+@media(max-width:899px) and (hover:hover) and (pointer:fine){
+  html[data-layout=cards] .pick-box,html[data-layout=digest] .pick-box{left:-25px}
+}
 
 /* ---- Motion off ---- */
 @media(prefers-reduced-motion:reduce){

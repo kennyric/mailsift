@@ -1823,6 +1823,35 @@ $('#theme').onclick = (event) => {
   }).catch(() => {});
 };
 
+// ---- List style: per-device layout stored in localStorage. ----
+const LAYOUTS = ['cards', 'digest', 'crisp', 'default'];
+function readLayout() {
+  try {
+    const stored = localStorage.getItem('layout');
+    return LAYOUTS.includes(stored) ? stored : 'cards';
+  } catch (e) { return 'cards'; }
+}
+function applyLayout(choice) {
+  document.documentElement.dataset.layout = choice;
+  for (const btn of document.querySelectorAll('#layout-picker button[data-layout]')) {
+    const on = btn.dataset.layout === choice;
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+}
+const layoutPicker = $('#layout-picker');
+if (layoutPicker) {
+  layoutPicker.addEventListener('click', (event) => {
+    const btn = event.target.closest('button[data-layout]');
+    if (!btn) return;
+    const next = btn.dataset.layout;
+    if (!LAYOUTS.includes(next)) return;
+    try { localStorage.setItem('layout', next); } catch (e) {}
+    applyLayout(next);
+  });
+}
+applyLayout(readLayout());
+
 // ---- Language: reword the page in place from the last answers. ----
 function renderAll() {
   renderLede();
@@ -1850,6 +1879,7 @@ function applyLanguage(next) {
   if (refresh && !refresh.disabled) { refresh.setAttribute('aria-label', t('refresh.label')); refresh.title = t('refresh.label'); }
   if (connectionProblem) setNetworkIssue(true);
   applyTheme(readTheme());
+  applyLayout(readLayout());
   renderAll();
   if (healthSheet.open) redrawHealth();
   if (folderSheet.open) drawFolders();

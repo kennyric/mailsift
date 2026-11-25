@@ -763,6 +763,9 @@ function themeBoot(): string {
   return "(function(){try{var c=localStorage.getItem('theme');"
     + "if(c!=='dark'&&c!=='light')c='light';"
     + "document.documentElement.dataset.theme=c;"
+    + "var l=localStorage.getItem('layout');"
+    + "if(l!=='cards'&&l!=='digest'&&l!=='crisp'&&l!=='default')l='cards';"
+    + "document.documentElement.dataset.layout=l;"
     + "var d=c==='dark';"
     + "var m=document.querySelector('meta[name=theme-color]');"
     + "var b=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();"
@@ -895,6 +898,7 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
               <label class="switch">${worded('span', 'filter.spamOnly')}<input type="checkbox" name="spamOnly" role="switch"></label>
               <label class="switch">${worded('span', 'filter.pushedOnly')}<input type="checkbox" name="pushedOnly" role="switch"></label>
               <label class="switch">${worded('span', 'filter.codesOnly')}<input type="checkbox" name="codesOnly" role="switch"></label>
+              <div class="field"><span class="label">List style</span><div id="layout-picker" class="segset" role="radiogroup" aria-label="List style"><button type="button" class="seg" data-layout="cards" role="radio" aria-checked="false"><span>Cards</span></button><button type="button" class="seg" data-layout="digest" role="radio" aria-checked="false"><span>Digest</span></button><button type="button" class="seg" data-layout="crisp" role="radio" aria-checked="false"><span>Crisp</span></button><button type="button" class="seg" data-layout="default" role="radio" aria-checked="false"><span>Default</span></button></div></div>
             </div>
           </dialog>
         </form>
