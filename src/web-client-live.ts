@@ -335,7 +335,12 @@ if ('serviceWorker' in navigator) {
 const askButton = $('#ask');
 function updateAsk() {
   // The model answers about what was judged; a folder listed live is the mailbox's own.
-  askButton.hidden = !session.assistant || !filters.q.value.trim() || Boolean(liveView);
+  // Keep the Ask affordance visible so the feature is discoverable; it is disabled
+  // until there is a question to send.
+  askButton.hidden = !session.assistant || Boolean(liveView);
+  askButton.disabled = !filters.q.value.trim();
+  const cancel = $('#search-cancel');
+  if (cancel) cancel.hidden = !filters.q.value.trim();
 }
 function wordPlaceholders() {
   filters.q.placeholder = liveView ? t(liveView.folder ? 'live.searchFolder' : 'live.searchMailbox')

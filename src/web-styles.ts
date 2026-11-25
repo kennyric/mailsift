@@ -126,10 +126,13 @@ color:var(--warning-text);font:inherit;font-size:13px;font-weight:500;text-align
 .seg.on{color:var(--text)}.seg.on span{font-weight:600;border-bottom-color:var(--accent)}
 .seg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
 .search-line{display:flex;align-items:center;gap:2px;padding:4px 6px 4px 16px}
+#search-cancel{display:block;min-width:36px;width:36px;padding:0;font-size:0;line-height:0}
+#search-cancel::before{content:"×";font-size:22px;line-height:1;color:var(--muted)}
 .search-field{position:relative;flex:1;min-width:0}
 .search-field .icon{position:absolute;left:10px;top:50%;width:16px;height:16px;margin-top:-8px;color:var(--muted);pointer-events:none}
 .search-field input{width:100%;min-height:36px;border:0;border-radius:10px;background:var(--fill);color:var(--text);padding:6px 86px 6px 32px;font:inherit;font-size:16px}
 .ask-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:7px;background:var(--accent);color:var(--on-accent);font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.ask-btn:disabled{opacity:.45;cursor:default}
 .ask-btn .icon{position:static;width:14px;height:14px;margin:0;color:inherit}
 .kbd{display:inline-block;min-width:20px;padding:0 5px;border:1px solid var(--line-strong);border-bottom-width:2px;border-radius:5px;background:var(--surface);color:var(--muted);font:500 11px/1.6 inherit;font-family:inherit;text-align:center;white-space:nowrap}
 .search-field .kbd{position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none}.ask-btn:not([hidden])~.kbd{display:none}
@@ -201,6 +204,8 @@ body.picking .controls::before{content:"";position:absolute;top:0;bottom:0;right
 body.picking .control-line{display:none!important}
 #bulk-sheet.popover .sheet-body{padding:0 8px 8px}
 @media(max-width:899px){
+  /* The search/ask field is permanent under the window on a phone. */
+  .search-line{padding:2px 8px 6px 12px}
   .pick-box{left:14px;top:14px;display:none}
   body.picking .pick-box{display:grid}
   body.picking .row>.mark,body.picking .row>.ring{visibility:hidden}
@@ -680,7 +685,7 @@ a.primary-action{display:inline-flex;align-items:center;justify-content:center;t
   .skeleton{padding-left:12px;padding-right:12px}
   .banner{margin:8px 12px 0}
   .control-line{padding-left:4px}.search-line{padding-left:12px;padding-right:12px}.tokens{padding:0 4px}
-  #search-open,#search-cancel{display:none}.search-line[hidden]{display:flex!important}
+  #search-open{display:none}.search-line[hidden]{display:flex!important}
   .lede{font-size:24px}
   .day{top:calc(56px + env(safe-area-inset-top))}
   .row{scroll-margin-top:calc(96px + env(safe-area-inset-top))}

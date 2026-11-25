@@ -1277,9 +1277,8 @@ matchMedia(WIDE).addEventListener('change', () => {
     controlLine.hidden = false;
   } else {
     if (filterSheet.open && filterSheet.classList.contains('popover')) closeFilters();
-    // On a phone the search line replaces the controls, so never show both; a
-    // query in progress stays as a token the controls can clear.
-    searchLine.hidden = true;
+    // The search/ask field stays visible on a phone; only the filter controls
+    // change places with the desktop layout.
     controlLine.hidden = false;
     // A desk's selection is not something a phone has. Left on the address,
     // its mark would open that message again the next time a sheet closes.

@@ -275,22 +275,20 @@ function renderTokens() {
   $('#filters-open').textContent = count ? fill('filter.moreActive', { count }) : t('filter.more');
 }
 
-// ---- Search: an icon on a phone, a field on a desk. ----
+// ---- Search and ask: one field, always under the window on a phone. ----
+// A person on a phone should not have to find a magnifier to ask their mail a
+// question. The field stays visible; the Ask button stays visible whenever the
+// assistant is configured and is disabled until there is something to ask.
 const searchLine = $('#search-line'), controlLine = $('#control-line'), searchInput = filters.q;
 function showSearch() {
-  searchLine.hidden = false;
-  if (!isWide()) controlLine.hidden = true;
   renderTokens();
   searchInput.focus();
 }
 function hideSearch() {
-  if (isWide()) return;
-  searchLine.hidden = true;
-  controlLine.hidden = false;
-  renderTokens();
+  searchInput.blur();
 }
-$('#search-open').onclick = showSearch;
-$('#search-cancel').onclick = () => {
+const searchCancel = $('#search-cancel');
+if (searchCancel) searchCancel.onclick = () => {
   if (searchInput.value) { searchInput.value = ''; if (liveView) runLiveQuery(''); else onFiltersChanged(); }
   hideSearch();
 };

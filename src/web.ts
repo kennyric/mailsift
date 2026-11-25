@@ -911,12 +911,11 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
             </fieldset>
             <div id="live-head" class="live-head" hidden>${iconButton('live-back', 'back', 'live.back')}<button id="live-where" type="button" class="live-where" aria-haspopup="dialog" aria-controls="folder-sheet" aria-expanded="false"><span id="live-where-name"></span>${icon('down')}</button></div>
             ${iconButton('folders-open', 'folder', 'folders.title', 'aria-haspopup="dialog" aria-controls="folder-sheet" aria-expanded="false"')}
-            ${iconButton('search-open', 'search', 'search.open')}
             <button id="filters-open" type="button" class="text-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="filter-sheet">${s('filter.more')}</button>
           </div>
-          <div id="search-line" class="search-line" hidden>
+          <div id="search-line" class="search-line">
             <div class="search-field">${icon('search')}<input type="search" name="q" placeholder="${s('search.short')}" aria-label="${s('search')}" data-i18n-label="search" inputmode="search" enterkeyhint="search" autocapitalize="off" autocorrect="off" spellcheck="false"><button id="ask" type="button" class="ask-btn" hidden>${icon('sparkle')}${worded('span', 'ask.button')}</button><kbd id="palette-hint" class="kbd" hidden></kbd></div>
-            <button id="search-cancel" type="button" class="text-btn quiet" data-i18n="search.cancel">${s('search.cancel')}</button>
+            <button id="search-cancel" type="button" class="text-btn quiet" data-i18n="search.cancel" hidden>${s('search.cancel')}</button>
           </div>
           <div id="tokens" class="tokens" hidden></div>
           <div id="live-note" class="live-note" role="status" hidden></div>
