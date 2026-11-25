@@ -10,11 +10,12 @@ import { enterUser } from '../src/web-actions.js';
 import { StateStore, storePathFor } from '../src/services/state.js';
 import { setSettingsAccountsFor, type Account } from '../src/config.js';
 import {
-  claimOwner, closeSettingsStore, createUser, issueSetupCode, listUsers, LlmOverrideDenied,
+  beginTotp, claimOwner, closeSettingsStore, createUser, enableTotp, issueSetupCode, listUsers, LlmOverrideDenied,
   MailboxConflictError, newMailboxId, readLlmOverrides, readSettingsFor, SharedSettingsDenied,
-  signIn, updateSettingsFor, type User,
+  signIn, totpEnabledFor, updateSettingsFor, type User,
 } from '../src/services/settings-store.js';
 import { llmConfigForUser } from '../src/services/llm-config.js';
+import { totpCode } from '../src/services/totp.js';
 
 let dir: string;
 let owner: User;
@@ -127,6 +128,14 @@ describe('per-user settings', { timeout: 30_000 }, () => {
     expect(readLlmOverrides(member.id)).toMatchObject({ LLM_API_KEY: 'member-key', LLM_MODEL: 'member-model' });
     expect(llmConfigForUser(member.id)).toMatchObject({ apiKey: 'member-key', model: 'member-model' });
     expect(llmConfigForUser(owner.id)).toMatchObject({ apiKey: 'admin-key', model: 'admin-model' });
+  });
+
+  it('asks for the authenticator code once two-step sign-in is enabled', () => {
+    const secret = beginTotp(owner.id);
+    expect(enableTotp(owner.id, totpCode(secret))).toBe(true);
+    expect(totpEnabledFor(owner.id)).toBe(true);
+    expect(signIn('owner', 'owner password')).toBeUndefined();
+    expect(signIn('owner', 'owner password', totpCode(secret))).toBeTruthy();
   });
 
   it('gives every user a database of their own, and the owner keeps the old path', () => {
