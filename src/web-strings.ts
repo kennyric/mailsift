@@ -20,9 +20,9 @@ export function isLanguage(value: string): value is Language {
 const en = {
   'login.title': 'Sign in',
   'login.intro': 'Sign in with your username and password.',
-  'login.account': 'Account',
+  'login.account': 'Username',
   'login.token': 'Password',
-  'login.open': 'Open',
+  'login.open': 'Sign in',
   'login.tooMany': 'Too many attempts. Wait a minute and try again.',
   'login.tooLarge': 'That request was too large.',
   'login.rejected': 'That password was not accepted.',
@@ -740,9 +740,9 @@ export type StringKey = keyof typeof en;
 const zhCN: Record<StringKey, string> = {
   'login.title': '登录',
   'login.intro': '请输入用户名和密码登录。',
-  'login.account': '账号',
+  'login.account': '用户名',
   'login.token': '密码',
-  'login.open': '进入',
+  'login.open': '登录',
   'login.tooMany': '尝试次数过多，请等一分钟再试。',
   'login.tooLarge': '请求过大。',
   'login.rejected': '密码不正确。',

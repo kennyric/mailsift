@@ -80,7 +80,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .app-main{width:min(1200px,100%);margin:0 auto;padding:8px 0 24px}
 .feed{min-width:0}
 .version{color:var(--muted);font-size:11px;font-weight:400;white-space:nowrap}
-footer.version{text-align:center;padding:8px 14px 20px}.login .version{text-align:center;margin:14px 0 0}
+footer.version{text-align:center;padding:8px 14px 20px}
 .text-btn{appearance:none;border:0;background:none;color:var(--accent);font:inherit;font-size:13px;font-weight:600;padding:12px 8px;min-height:44px;border-radius:8px;cursor:pointer;white-space:nowrap}
 .text-btn:disabled{opacity:.5;cursor:default}
 .text-btn.quiet{color:var(--muted)}
@@ -714,21 +714,35 @@ a.primary-action{display:inline-flex;align-items:center;justify-content:center;t
 }
 
 /* ---- Sign-in ---- */
-.login{max-width:320px;margin:18vh auto 0;padding:0 24px;display:flex;flex-direction:column;align-items:center;text-align:center}
-.login .brand-mark{width:56px;height:56px;border-radius:16px;margin-bottom:14px}
-.login h1{margin:0 0 6px;font-size:28px;font-weight:600;letter-spacing:-.02em}
-.login .muted{margin:0 0 24px;color:var(--muted)}
-.login input,.login button{width:100%;font:inherit}
-/* Present so a password manager has an account to file the token under, but
-   it is not a second thing to fill in. */
-.login input[name=user]{border:0;background:none;color:var(--muted);font-size:13px;text-align:center;padding:4px;margin-bottom:4px;cursor:default}
-.login input[name=token]{min-height:48px;border:0;border-radius:10px;background:var(--fill);color:var(--text);padding:10px 14px;font-size:16px}
-.login input[name=token]::placeholder{color:var(--muted)}
-.login button[type=submit]{min-height:48px;margin-top:12px;border:0;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:15px;font-weight:600;cursor:pointer}
-.login .error{align-self:stretch;margin:12px 0 0;padding:4px 10px;border-left:2px solid var(--critical-text);color:var(--critical-text);font-size:13px;text-align:left}
-/* On the sign-in form the switch is a quiet word under the button, not a second button. */
-.login .lang{width:auto;margin:20px auto 0;padding:8px;border:0;background:none;color:var(--muted);font-size:13px;cursor:pointer}
-@media(max-height:700px){.login{margin-top:12vh}}
+.login-wrap{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+padding:max(28px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));
+background:radial-gradient(1100px 520px at 50% -12%,var(--accent-tint),transparent 68%)}
+.login{width:min(400px,100%);margin:0;padding:28px 24px 24px;display:flex;flex-direction:column;gap:18px;
+background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow-pop);text-align:left}
+.login-head{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:4px 0 2px}
+.login .brand-mark{width:52px;height:52px;border-radius:15px;margin:0}
+.login h1{margin:0;font-size:24px;font-weight:650;letter-spacing:-.025em}
+.login .muted{margin:0;color:var(--muted);font-size:13.5px;line-height:1.5;max-width:30ch}
+.login-field{display:flex;flex-direction:column;gap:6px}
+.login-label{font-size:12.5px;font-weight:600;color:var(--text-2);letter-spacing:.01em}
+.login input[type=text],.login input[type=password]{width:100%;min-height:48px;padding:11px 14px;border:1px solid var(--line-strong);
+border-radius:11px;background:var(--fill);color:var(--text);font:inherit;font-size:16px;transition:border-color .12s,box-shadow .12s,background .12s}
+.login input[type=text]:focus,.login input[type=password]:focus{outline:none;border-color:var(--accent);
+box-shadow:0 0 0 3px var(--accent-tint);background:var(--surface)}
+.login input::placeholder{color:var(--muted)}
+.login-submit{min-height:48px;margin-top:4px;border:0;border-radius:12px;background:var(--accent);color:var(--on-accent);
+font:inherit;font-size:15px;font-weight:650;cursor:pointer;transition:filter .12s,transform .06s}
+.login-submit:hover{filter:brightness(1.06)}
+.login-submit:active{transform:translateY(1px)}
+.login .error{margin:0;padding:10px 12px;border-radius:10px;
+background:color-mix(in srgb,var(--critical) 12%,var(--surface));color:var(--critical-text);font-size:13px;line-height:1.45}
+.login-foot{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}
+.login .lang{width:auto;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--muted);font:inherit;font-size:12.5px;cursor:pointer}
+.login .lang:hover{background:var(--fill);color:var(--text)}
+.login-foot .version{margin:0;font-size:11.5px;color:var(--muted);text-align:left}
+.login-dot{opacity:.5}
+@media(max-width:420px){.login{padding:24px 18px 20px;border-radius:18px}}
+@media(max-height:640px){.login-wrap{justify-content:flex-start;padding-top:48px}}
 
 /* ---- Per-device list style presets (html[data-layout=...]) ---- */
 html[data-layout=cards] .day,html[data-layout=digest] .day{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:14px 16px 6px}

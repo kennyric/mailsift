@@ -478,7 +478,7 @@ describe('rendering', () => {
     expect(page).toContain('<footer class="version"><span id="version">v0.1.56</span>');
     const login = String((await routeWeb(request(), url('/'), 'secret', seeded())).body);
     expect(login).toContain('<h1>mailsift</h1>');
-    expect(login).toContain('<p class="version">v0.1.56</p>');
+    expect(login).toContain('<span class="version">v0.1.56</span>');
   });
 
   it('builds every message value in the browser, never as server-side markup', async () => {
@@ -678,7 +678,7 @@ describe('layout', () => {
     const page = String((await routeWeb(request(), url('/'), '', seeded())).body);
     expect(page).toContain('.version{color:var(--muted);font-size:11px;font-weight:400;white-space:nowrap}');
     expect(page).toContain('footer.version{text-align:center;padding:8px 14px 20px}');
-    expect(page).toContain('.login .version{text-align:center;margin:14px 0 0}');
+    expect(page).toContain('.login-foot .version{margin:0;font-size:11.5px;color:var(--muted);text-align:left}');
   });
 
   it('keeps both header switches on the first row of a phone', async () => {
@@ -730,7 +730,7 @@ describe('language', () => {
     const headers = { 'accept-language': 'zh-CN' };
     const login = String((await routeWeb(request({ headers }), url('/'), 'secret', store)).body);
     expect(login).toContain('<title>登录</title>');
-    expect(login).toContain('>进入<');
+    expect(login).toContain('>登录<');
     expect(login).toContain('id="lang"');
     const refused = await routeWeb(
       request({ method: 'POST', url: '/auth', body: 'token=wrong', headers }), url('/auth'), 'secret', store,

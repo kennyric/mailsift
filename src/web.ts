@@ -727,18 +727,31 @@ export function renderLogin(lang: Language, error?: StringKey, nonce = '', upgra
   // on this page to lose, and the reload goes to a GET so a refused sign-in is
   // not posted a second time.
   return page(lang, s('login.title'), `
-    <form method="post" action="/auth" class="login">
-      <img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true">
-      <h1>mailsift</h1>
-      <p class="muted">${s(upgrade ? 'login.introWrite' : 'login.intro')}</p>
-      <input type="text" name="username" autocomplete="username" placeholder="${s('login.account')}" autocapitalize="none" spellcheck="false" required autofocus>
-      <input type="password" name="password" autocomplete="current-password" placeholder="${s('login.token')}" enterkeyhint="go" required>
-      <input type="hidden" name="next" value="${escapeHtml(next)}">
-      <button type="submit">${s('login.open')}</button>
-      ${error ? '<p class="error" role="alert">' + s(error) + '</p>' : ''}
-      <button type="button" id="lang" class="lang" aria-label="${s('lang.label')}">${s('lang.face')}</button>
-      <p class="version">${escapeHtml(webVersion())}</p>
-    </form>
+    <div class="login-wrap">
+      <form method="post" action="/auth" class="login">
+        <div class="login-head">
+          <img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true">
+          <h1>mailsift</h1>
+          <p class="muted">${s(upgrade ? 'login.introWrite' : 'login.intro')}</p>
+        </div>
+        <label class="login-field">
+          <span class="login-label">${s('login.account')}</span>
+          <input type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+        </label>
+        <label class="login-field">
+          <span class="login-label">${s('login.token')}</span>
+          <input type="password" name="password" autocomplete="current-password" enterkeyhint="go" required>
+        </label>
+        <input type="hidden" name="next" value="${escapeHtml(next)}">
+        <button class="login-submit" type="submit">${s('login.open')}</button>
+        ${error ? '<p class="error" role="alert">' + s(error) + '</p>' : ''}
+      </form>
+      <div class="login-foot">
+        <button type="button" id="lang" class="lang" aria-label="${s('lang.label')}">${s('lang.face')}</button>
+        <span class="login-dot" aria-hidden="true">·</span>
+        <span class="version">${escapeHtml(webVersion())}</span>
+      </div>
+    </div>
     <script nonce="${nonce}">${storeLanguageScript()}
     // Where this form was asked for (a shortcut, a shared link, a message named after #) is where signing in goes.
     var next = document.querySelector('input[name=next]');
