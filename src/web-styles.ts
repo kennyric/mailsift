@@ -51,6 +51,9 @@ html[lang=zh-CN] .lede,html[lang=zh-CN] .brand strong,html[lang=zh-CN] .login h1
 /* Paint the area behind the iOS status bar from the live theme, not the
    theme-color snapshot iOS took when this home-screen app was opened. */
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top);background:var(--bg);z-index:4;pointer-events:none}
+/* The home-indicator strip at the bottom follows the page theme too, instead
+   of showing the light system background under a dark page. */
+body::after{content:"";position:fixed;inset:auto 0 0;height:env(safe-area-inset-bottom);background:var(--bg);z-index:4;pointer-events:none}
 [hidden]{display:none!important}
 .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 ::selection{background:var(--accent-tint)}

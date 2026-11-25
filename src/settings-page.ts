@@ -12,7 +12,7 @@ import { PROVIDER_PRESETS } from './config.js';
 import { SECTION_TITLES, SETTING_FIELDS, words, type SectionId } from './settings-catalog.js';
 import { ADMIN_PASSWORD_MIN } from './services/settings-store.js';
 import { storeLanguageScript } from './web-client.js';
-import { styles } from './web-styles.js';
+import { LIGHT_BAR, styles } from './web-styles.js';
 import type { Language } from './web-strings.js';
 
 type Dict = Record<string, string>;
@@ -502,12 +502,25 @@ function dict(lang: Language): Dict {
 }
 
 /** The theme the mail view stored, applied before first paint. */
-const THEME_BOOT = "(function(){try{var c=localStorage.getItem('theme');document.documentElement.dataset.theme=c==='dark'?'dark':'light';}catch(e){}})();";
+const THEME_BOOT = "(function(){try{var c=localStorage.getItem('theme');"
+  + "document.documentElement.dataset.theme=c==='dark'?'dark':'light';"
+  + "var d=c==='dark';"
+  + "var m=document.querySelector('meta[name=theme-color]');"
+  + "var b=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();"
+  + "if(m&&b)m.setAttribute('content',b);"
+  + "var a=document.querySelector('meta[name=apple-mobile-web-app-status-bar-style]');"
+  + "if(a)a.setAttribute('content',d?'black-translucent':'default');"
+  + "}catch(e){}})();";
 
 function shell(lang: Language, title: string, body: string, nonce: string): string {
   return '<!doctype html><html lang="' + lang + '"><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
     + '<meta name="referrer" content="no-referrer">'
+    + '<meta name="theme-color" content="' + LIGHT_BAR + '">'
+    + '<meta name="apple-mobile-web-app-capable" content="yes">'
+    + '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">'
+    + '<meta name="apple-mobile-web-app-title" content="mailsift">'
+    + '<meta name="mobile-web-app-capable" content="yes">'
     + '<link rel="icon" type="image/png" href="/favicon.ico?v=3">'
     + '<title>' + escapeHtml(title) + ' · mailsift</title>'
     + '<style>' + styles() + SETTINGS_CSS + '</style>'
@@ -642,8 +655,8 @@ export function renderSettingsPage(
         <span class="st-crumb" id="crumb">${escapeHtml(title)}</span>
         <div class="st-header-actions">
           ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/users">${escapeHtml(d['nav.users']!)}</a>` : ''}
-          ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/activity">${escapeHtml(d['users.activityLink']!)}</a>` : ''}
-          ${mode === 'settings' ? `<a class="word-btn" href="/" id="back">${escapeHtml(d['nav.back']!)}</a>` : ''}
+          ${mode === 'settings' && asOwner ? `<a class="word-btn st-optional" href="/activity">${escapeHtml(d['users.activityLink']!)}</a>` : ''}
+          ${mode === 'settings' ? `<a class="word-btn st-back" href="/" id="back" aria-label="${escapeHtml(d['nav.back']!)}" title="${escapeHtml(d['nav.back']!)}">‹</a>` : ''}
           <button type="button" class="word-btn" id="lang">${escapeHtml(d['lang.face']!)}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn" id="signout">${escapeHtml(d['nav.signout']!)}</button></form>
         </div>
@@ -664,8 +677,10 @@ body{min-height:100vh}
 .st-header-inner{display:flex;align-items:center;gap:12px;width:min(1080px,100%);min-height:52px;margin:0 auto}
 .st-header .brand{text-decoration:none;color:var(--text)}
 .st-crumb{color:var(--muted);font-size:14px;padding-left:12px;border-left:1px solid var(--line)}
-.st-header-actions{margin-left:auto;display:flex;align-items:center;gap:2px}
-.st-header-actions .word-btn{text-decoration:none;display:inline-grid}
+.st-header-actions{margin-left:auto;display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.st-header-actions::-webkit-scrollbar{display:none}
+.st-header-actions .word-btn{text-decoration:none;display:inline-grid;white-space:nowrap;flex:none}
+.st-back{font-size:22px;line-height:1;min-width:34px;padding:0 4px}
 .st-signout{margin:0;display:contents}
 .st-banner{width:min(1080px,calc(100% - 32px));margin:12px auto 0;padding:10px 14px;border-radius:10px;background:var(--accent-tint);color:var(--text);font-size:14px}
 .st-banner.warn{background:color-mix(in srgb,var(--warning) 16%,var(--surface))}
@@ -809,6 +824,12 @@ body{min-height:100vh}
   .st-mb{grid-template-columns:10px minmax(0,1fr);}
   .st-mb-actions{grid-column:2}
   .st-summary li{grid-template-columns:110px minmax(0,1fr)}
+  .st-header-inner{gap:6px}
+  .st-header .brand strong{font-size:14px}
+  .st-header-actions{gap:0}
+  .st-header-actions .word-btn{font-size:12px;padding:0 6px;min-width:0}
+  .st-header-actions .st-optional{display:none}
+  .st-back{font-size:22px;min-width:32px}
 }
 `;
 
@@ -879,8 +900,8 @@ export function renderUsersPage(
         <span class="st-crumb">${s('users.title')}</span>
         <div class="st-header-actions">
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
-          <a class="word-btn" href="/activity">${s('users.activityLink')}</a>
-          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <a class="word-btn st-optional" href="/activity">${s('users.activityLink')}</a>
+          <a class="word-btn st-back" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">‹</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
         </div>
@@ -891,15 +912,15 @@ export function renderUsersPage(
         <h2>${s('users.title')}</h2>
         <p class="st-lede">${s('users.lede')}</p>
         <ul class="st-users" id="users">${rows || `<li class="st-empty">${s('users.empty')}</li>`}</ul>
-        <p class="st-users-count">${users.length} / ${max}</p>
+        <p class="st-users-count">${users.length} / ${max} · <a class="st-link" href="/activity">${s('users.activityLink')}</a></p>
       </section>
       <section class="st-section">
         <h2>${s('users.create')}</h2>
         <form class="st-users-new" id="create" novalidate>
           <div class="st-field"><label for="new-username">${s('users.username')}</label>
-            <input id="new-username" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+            <input class="st-input" id="new-username" name="username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
           <div class="st-field"><label for="new-password">${s('users.password')}</label>
-            <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="${ADMIN_PASSWORD_MIN}" required>
+            <input class="st-input" id="new-password" name="password" type="password" autocomplete="new-password" minlength="${ADMIN_PASSWORD_MIN}" required
             <p class="st-help">${s('users.passwordHelp').replace('{n}', String(ADMIN_PASSWORD_MIN))}</p></div>
           <div class="st-foot"><span class="st-result" id="create-result" role="status"></span>
             <button type="submit" class="st-btn primary">${s('users.add')}</button></div>
@@ -929,7 +950,7 @@ export function renderUsersPage(
       }
       function field(label, id, type, value, help) {
         body.innerHTML = '<label class="st-field"><span class="st-label">' + label + '</span>' +
-          '<input id="' + id + '" type="' + type + '" value="' + value.replace(/"/g, '&quot;') + '" autocomplete="' + (type === 'password' ? 'new-password' : 'off') + '" spellcheck="false">' +
+          '<input class="st-input" id="' + id + '" type="' + type + '" value="' + value.replace(/"/g, '&quot;') + '" autocomplete="' + (type === 'password' ? 'new-password' : 'off') + '" spellcheck="false">' +
           (help ? '<span class="st-help">' + help + '</span>' : '') + '</label>';
         var input = $(id); if (input) { input.focus(); input.select(); }
         return input;
