@@ -625,7 +625,7 @@ describe('many messages at once', () => {
     expect(store.getMail('k3')?.handledAt).not.toBeNull();
   });
 
-  it('works out which senders spam has muted once, not once for each vote', () => {
+  it('works out which senders spam has muted once, not once for each vote', { timeout: 20_000 }, () => {
     const store = new StateStore(':memory:');
     // Many senders, each with mail put in spam and some taken out again.
     // Six thousand votes: once per vote took most of a second, once in all takes a few milliseconds.

@@ -910,6 +910,7 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
               ${seg('hours', '24', 'window.24h', true)}${seg('hours', '72', 'window.3d')}${seg('hours', '168', 'window.7d')}${seg('hours', '720', 'window.30d')}
             </fieldset>
             <div id="live-head" class="live-head" hidden>${iconButton('live-back', 'back', 'live.back')}<button id="live-where" type="button" class="live-where" aria-haspopup="dialog" aria-controls="folder-sheet" aria-expanded="false"><span id="live-where-name"></span>${icon('down')}</button></div>
+            ${iconButton('actions-open', 'check', 'action.title', 'aria-haspopup="dialog" aria-controls="action-sheet" aria-expanded="false"')}
             ${iconButton('folders-open', 'folder', 'folders.title', 'aria-haspopup="dialog" aria-controls="folder-sheet" aria-expanded="false"')}
             <button id="filters-open" type="button" class="text-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="filter-sheet">${s('filter.more')}</button>
           </div>
@@ -967,6 +968,10 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
     <dialog id="bulk-sheet" class="sheet bare" aria-labelledby="bulk-title" tabindex="-1">
       ${sheetHead('bulk-title', 'bulk.title', 'bulk-done')}
       <div class="sheet-body"></div>
+    </dialog>
+    <dialog id="action-sheet" class="sheet" aria-labelledby="action-title" tabindex="-1">
+      ${sheetHead('action-title', 'action.title', 'action-done')}
+      <div class="sheet-body" id="action-body"></div>
     </dialog>
     <dialog id="keys-sheet" class="sheet" aria-labelledby="keys-title" tabindex="-1">
       ${sheetHead('keys-title', 'keys.title', 'keys-done')}
@@ -1075,6 +1080,14 @@ function manifest(lang: Language, dark = false): string {
     scope: '/',
     display: 'standalone',
     display_override: ['standalone'],
+    launch_handler: { client_mode: 'navigate-existing' },
+    // Share a link or some text from Android into mailsift: the page opens a
+    // new letter with it filled in. GET keeps this server-free and inspectable.
+    share_target: {
+      action: '/',
+      method: 'GET',
+      params: { title: 'share_title', text: 'share_text', url: 'share_url' },
+    },
     categories: ['productivity', 'utilities'],
     // The splash and the task switcher take these when the app is installed;
     // the page keeps its live meta theme-color in sync after that. Served per
@@ -1090,6 +1103,7 @@ function manifest(lang: Language, dark = false): string {
     // A long press on the home-screen icon: the two things worth a shortcut.
     // The page reads these query parameters on boot.
     shortcuts: [
+      { name: t(lang, 'shortcut.actions'), url: '/?focus=actions', icons: [{ src: '/icon-192.png?v=3', sizes: '192x192', type: 'image/png' }] },
       { name: t(lang, 'shortcut.code'), url: '/?focus=code', icons: [{ src: '/icon-192.png?v=3', sizes: '192x192', type: 'image/png' }] },
       { name: t(lang, 'shortcut.critical'), url: '/?importance=critical', icons: [{ src: '/icon-192.png?v=3', sizes: '192x192', type: 'image/png' }] },
     ],

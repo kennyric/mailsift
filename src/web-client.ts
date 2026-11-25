@@ -23,6 +23,7 @@
  * the reader, the composer and the live line each have a file of their own.
  */
 import { composePart } from './web-client-compose.js';
+import { actionsPart } from './web-client-actions.js';
 import { listPart } from './web-client-list.js';
 import { livePart } from './web-client-live.js';
 import { mailboxPart } from './web-client-mailbox.js';
@@ -48,7 +49,7 @@ export function storeLanguageScript(): string {
 
 /** The whole script: the frame, then each part, then the lines that start it. */
 export function clientScript(): string {
-  return corePart() + mailboxPart() + listPart() + readerPart() + composePart() + livePart();
+  return corePart() + mailboxPart() + listPart() + readerPart() + composePart() + livePart() + actionsPart();
 }
 
 function corePart(): string {

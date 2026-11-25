@@ -16,7 +16,7 @@ import {
   type AttachmentInfo, type AttachmentManifest, type MailMessage,
 } from './message.js';
 import {
-  authservTrust, mailboxAuthHeaders, MAX_HTML_BYTES, parseAuthenticationResults, parseReadable, slimSource,
+  authservTrust, mailboxAuthHeaders, MAX_HTML_BYTES, parseAuthenticationResults, parseReadable, slimSource, unsubscribeUrl,
   type ReadableAuth, type ReadableMessage,
 } from './readable.js';
 import {
@@ -739,6 +739,11 @@ async function toMailMessage(
     hasAttachments: hasAttachments || attachmentManifest.items.length > 0 || attachmentManifest.truncated,
     attachmentManifest,
     listUnsubscribe: /^list-unsubscribe:/im.test(headers),
+    ...((() => {
+      const line = headers.split(/\r?\n/).find((header) => /^list-unsubscribe:/i.test(header));
+      const url = unsubscribeUrl(line);
+      return url ? { unsubscribeUrl: url } : {};
+    })()),
   };
 }
 

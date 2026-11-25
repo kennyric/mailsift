@@ -15,6 +15,9 @@ mailsift watches all your IMAP mailboxes, spam folders included. It judges each 
 - **Pushed when it matters.** Important mail goes to Feishu or your webhook as soon as mailsift sees it, within seconds with IMAP IDLE. The rest waits for one daily digest.
 - **Codes at a glance.** A verification code is shown in the Feishu card and, in the web view, as one large copy button. Codes and sign-in links never reach the LLM.
 - **A mail client built on the triage.** The web view opens on what needs you. Read each message as it was sent, safely; mark it done, archive it or answer it, one or many at a time; open any folder or search the whole mailbox, live; ask a question across your mail. It installs to a phone's home screen and notifies you there.
+- **An action centre**, so tasks, deadlines and messages still waiting for a reply do not get lost in the queue.
+- **Insights and subscription clean-up**, including token/cost usage, sender frequency, unsubscribe links and one-click sender muting.
+- **A share target and home-screen shortcuts**: share a link or text from Android into a new letter, or open the action centre and latest code directly.
 - **An MCP server**, so an AI assistant can see what needs you, list, search and read your triaged mail, and reach the rest of the mailbox live.
 - **Says when it cannot see.** Alerts when a mailbox or the LLM keeps failing, and an optional heartbeat lets an outside monitor notice if mailsift itself stops.
 
@@ -90,6 +93,8 @@ Every command and flag is in [docs/deployment.md](docs/deployment.md#commands).
 - [Triage](docs/triage.md): how mail is judged, the LLM and what it sees, two-stage triage, fallback, verification codes and sign-in links.
 - [Web view](docs/web-view.md): the queue, reading and what keeps it safe, acting, writing, asking, notifications, the keyboard, and how the page is protected.
 - [MCP](docs/mcp.md): tools, resources, the write token, attachments, safety clues, audit.
+- [Action centre](docs/action-center.md): tasks, deadlines and follow-ups.
+- [Insights and subscriptions](docs/insights.md): usage, quality, cost and sender clean-up.
 - [Deployment and operations](docs/deployment.md): Docker, first start, remote access and HTTPS, sign-in, Gmail and Outlook OAuth, backups, upgrades, systemd, commands, monitoring, recovery.
 - [Troubleshooting](docs/troubleshooting.md)
 - [Signal event v1](docs/signal-event-v1.md): the `signal` object in webhook payloads.

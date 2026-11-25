@@ -517,12 +517,12 @@ describe('installable app', () => {
     expect(m.id).toBe('/');
     expect(m.display_override).toEqual(['standalone']);
     expect(m.icons.some((i) => i.purpose === 'maskable' && i.sizes === '512x512')).toBe(true);
-    // A long press on the icon offers the two things worth a shortcut, worded in the reader's language.
-    expect(m.shortcuts.map((s) => s.url)).toEqual(['/?focus=code', '/?importance=critical']);
+    // A long press on the icon offers the things worth a shortcut, worded in the reader's language.
+    expect(m.shortcuts.map((s) => s.url)).toEqual(['/?focus=actions', '/?focus=code', '/?importance=critical']);
     const zh = await routeWeb(
       request({ url: '/manifest.webmanifest', headers: { 'accept-language': 'zh-CN' } }), url('/manifest.webmanifest'), '', store,
     );
-    expect((JSON.parse(String(zh.body)) as typeof m).shortcuts[0]?.name).toBe('最新验证码');
+    expect((JSON.parse(String(zh.body)) as typeof m).shortcuts[0]?.name).toBe('行动中心');
     // One URL, two bodies: no shared cache may hand one reader's language to another.
     expect(answer.cacheControl).toContain('private');
     expect(answer.headers?.['vary']).toContain('Accept-Language');

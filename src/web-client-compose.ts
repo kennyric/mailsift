@@ -1074,6 +1074,17 @@ function startCompose() {
   if (!requireWrite()) return;
   openCompose({ mode: 'new', key: '', titleKey: 'compose.new', files: [] });
 }
+
+/** A share target or a protocol link: a new letter with what was shared in it. */
+function startSharedCompose(shared) {
+  if (!requireWrite()) return;
+  openCompose({ mode: 'new', key: '', titleKey: 'compose.new', files: [] });
+  if (shared.subject) composeForm.subject.value = shared.subject;
+  composeForm.text.value = [shared.text, shared.url].filter(Boolean).join('\n\n');
+  if (shared.to) composeForm.to.value = shared.to;
+  growText();
+  setTimeout(() => (composeForm.to.value ? composeForm.text : composeForm.to).focus(), 80);
+}
 $('#compose-open').onclick = startCompose;
 $('#compose-cancel').onclick = () => { saveDraft(); closeSheet(composeSheet, false); };
 $('#compose-cc-toggle').onclick = () => {

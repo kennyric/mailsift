@@ -13,6 +13,7 @@ import { SECTION_TITLES, SETTING_FIELDS, words, type SectionId } from './setting
 import { ADMIN_PASSWORD_MIN } from './services/settings-store.js';
 import { storeLanguageScript } from './web-client.js';
 import { LIGHT_BAR, styles } from './web-styles.js';
+import type { Insights } from './services/state.js';
 import type { Language } from './web-strings.js';
 
 type Dict = Record<string, string>;
@@ -78,6 +79,30 @@ const EN: Dict = {
   'activity.result': 'Result',
   'activity.ok': 'OK',
   'activity.failed': 'Failed',
+  'insights.title': 'Insights',
+  'insights.lede': 'How your mail was judged, what it cost, and which senders are worth cleaning up.',
+  'insights.messages': 'Judged',
+  'insights.tasks': 'Open tasks',
+  'insights.due': 'Due tasks',
+  'insights.tokens': 'LLM tokens',
+  'insights.cost': 'Estimated cost',
+  'insights.importance': 'Importance',
+  'insights.category': 'Categories',
+  'insights.source': 'Decision source',
+  'insights.senders': 'Most frequent senders',
+  'insights.subscriptions': 'Subscriptions to review',
+  'insights.subscriptionsEmpty': 'No recurring senders stood out yet.',
+  'insights.mute': 'Mute sender',
+  'insights.muted': 'Muted',
+  'insights.unsubscribe': 'Unsubscribe',
+  'insights.suggested': 'Suggested rules',
+  'insights.suggestedEmpty': 'Mark a few messages as noise and a rule suggestion will appear here.',
+  'insights.feedback': 'Feedback',
+  'insights.intro': 'Last {days} days',
+  'insights.count': '{n} messages',
+  'insights.never': 'Never',
+  'insights.last': 'Last: {at}',
+  'insights.saved': 'Saved',
   'access.personalTokens': 'My MCP tokens',
   'access.personalBody': 'Give an assistant its own token. It sees only your mail, and a write token can act only on your mail.',
   'access.createRead': 'New read token',
@@ -304,6 +329,30 @@ const ZH: Dict = {
   'activity.result': '结果',
   'activity.ok': '成功',
   'activity.failed': '失败',
+  'insights.title': '洞察',
+  'insights.lede': '邮件如何被判定、花了多少，以及哪些发件人值得清理。',
+  'insights.messages': '已判断',
+  'insights.tasks': '待办任务',
+  'insights.due': '到期任务',
+  'insights.tokens': 'LLM 令牌',
+  'insights.cost': '估算费用',
+  'insights.importance': '重要度',
+  'insights.category': '分类',
+  'insights.source': '判定来源',
+  'insights.senders': '最频繁的发件人',
+  'insights.subscriptions': '待检查的订阅',
+  'insights.subscriptionsEmpty': '暂时没有明显的重复发件人。',
+  'insights.mute': '静音发件人',
+  'insights.muted': '已静音',
+  'insights.unsubscribe': '退订',
+  'insights.suggested': '建议规则',
+  'insights.suggestedEmpty': '把几封邮件标为噪音后，这里会出现规则建议。',
+  'insights.feedback': '反馈',
+  'insights.intro': '最近 {days} 天',
+  'insights.count': '{n} 封邮件',
+  'insights.never': '从未',
+  'insights.last': '最近：{at}',
+  'insights.saved': '已保存',
   'access.personalTokens': '我的 MCP 令牌',
   'access.personalBody': '给智能体一个只属于你的令牌。它只能看到你的邮件；写令牌也只能操作你的邮件。',
   'access.createRead': '新建只读令牌',
@@ -655,6 +704,7 @@ export function renderSettingsPage(
         <span class="st-crumb" id="crumb">${escapeHtml(title)}</span>
         <div class="st-header-actions">
           ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/users">${escapeHtml(d['nav.users']!)}</a>` : ''}
+          ${mode === 'settings' ? `<a class="word-btn" href="/insights">${escapeHtml(d['insights.title']!)}</a>` : ''}
           ${mode === 'settings' && asOwner ? `<a class="word-btn st-optional" href="/activity">${escapeHtml(d['users.activityLink']!)}</a>` : ''}
           ${mode === 'settings' ? `<a class="word-btn st-back" href="/" id="back" aria-label="${escapeHtml(d['nav.back']!)}" title="${escapeHtml(d['nav.back']!)}">‹</a>` : ''}
           <button type="button" class="word-btn" id="lang">${escapeHtml(d['lang.face']!)}</button>
@@ -773,6 +823,24 @@ body{min-height:100vh}
 .st-audit td:first-child{white-space:nowrap;color:var(--muted);font-size:12.5px}
 .st-audit .ok{color:var(--ok);font-weight:600}
 .st-audit .bad{color:var(--critical-text);font-weight:600}
+.st-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 24px}
+.st-stat{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.st-stat .n{display:block;font-size:24px;line-height:1.1;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.st-stat .label{display:block;margin-top:5px;color:var(--muted);font-size:12.5px}
+.st-bars{display:grid;gap:8px;margin:0 0 22px}
+.st-bar-row{display:grid;grid-template-columns:110px minmax(0,1fr) 40px;align-items:center;gap:10px;font-size:13px}
+.st-bar-row .name{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-bar-track{height:8px;border-radius:99px;background:var(--fill);overflow:hidden}
+.st-bar-fill{height:100%;border-radius:99px;background:var(--accent)}
+.st-bar-row .n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.st-sender-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.st-sender-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;padding:11px 2px;border-bottom:1px solid var(--line);font-size:13.5px}
+.st-sender-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-sender-meta{color:var(--muted);font-size:12px;margin-top:2px}
+.st-sender-actions{display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.st-sender-actions .st-btn{min-height:30px;padding:3px 9px;font-size:12.5px}
+.st-chip{display:inline-block;padding:3px 9px;border-radius:999px;background:var(--fill);color:var(--text-2);font-size:12px;margin:0 4px 4px 0}
+@media (max-width:700px){.st-bar-row{grid-template-columns:86px minmax(0,1fr) 34px}}
 @media (max-width:700px){
   .st-users-new{grid-template-columns:minmax(0,1fr)}
   .st-user{grid-template-columns:38px minmax(0,1fr);align-items:start}
@@ -1063,6 +1131,100 @@ export function renderAuditPage(
         </table></div>` : `<p class="st-empty">${s('activity.empty')}</p>`}
       </section>
     </main>`, nonce);
+}
+
+/** Per-person triage quality, spend and subscription clean-up. */
+export function renderInsightsPage(
+  lang: Language, nonce: string, version: string, insights: Insights,
+): string {
+  const d = dict(lang);
+  const s = (key: string): string => escapeHtml(d[key] ?? key);
+  const when = (iso: string | undefined): string => {
+    if (!iso) return s('insights.never');
+    const date = new Date(iso);
+    return Number.isNaN(date.valueOf()) ? s('insights.never')
+      : new Intl.DateTimeFormat(lang, { dateStyle: 'medium' }).format(date);
+  };
+  const max = (items: Array<{ n: number }>): number => Math.max(1, ...items.map((item) => item.n));
+  const bars = (items: Array<{ name: string; n: number }>): string => {
+    const top = max(items);
+    return items.length ? `<div class="st-bars">${items.map((item) => `
+      <div class="st-bar-row"><span class="name">${escapeHtml(item.name || '—')}</span>
+        <span class="st-bar-track"><span class="st-bar-fill" style="width:${Math.max(2, Math.round(item.n / top * 100))}%"></span></span>
+        <span class="n">${item.n}</span></div>`).join('')}</div>` : '';
+  };
+  const senderRows = insights.subscriptions.map((row) => `
+    <li class="st-sender-item">
+      <div><div class="st-sender-name">${escapeHtml(row.name || row.sender)}</div>
+        <div class="st-sender-meta">${escapeHtml(row.sender)} · ${s('insights.count').replace('{n}', String(row.count))} · ${s('insights.last').replace('{at}', escapeHtml(when(row.lastAt)))}</div></div>
+      <div class="st-sender-actions">
+        ${row.unsubscribeUrl ? `<a class="st-btn" href="${escapeHtml(row.unsubscribeUrl)}" target="_blank" rel="noopener noreferrer nofollow">${s('insights.unsubscribe')}</a>` : ''}
+        <button type="button" class="st-btn" data-mute="${escapeHtml(row.sender)}">${s('insights.mute')}</button>
+      </div>
+    </li>`).join('');
+  const cost = insights.usage.costTicks ? `$${(insights.usage.costTicks / 1e10).toFixed(4)}` : '—';
+  const feedback = Object.entries(insights.feedback).map(([label, n]) => `${escapeHtml(label)} ${n}`).join(' · ');
+  return shell(lang, d['insights.title']!, `
+    <header class="st-header">
+      <div class="st-header-inner">
+        <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
+        <span class="st-crumb">${s('insights.title')}</span>
+        <div class="st-header-actions">
+          <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn st-optional" href="/activity">${s('users.activityLink')}</a>
+          <a class="word-btn st-back" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">‹</a>
+          <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
+          <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="st-main st-users-main">
+      <section class="st-section">
+        <h2>${s('insights.title')}</h2>
+        <p class="st-lede">${s('insights.lede')} <span class="st-help">${s('insights.intro').replace('{days}', String(insights.days))}</span></p>
+        <div class="st-stats">
+          <div class="st-stat"><span class="n">${insights.total}</span><span class="label">${s('insights.messages')}</span></div>
+          <div class="st-stat"><span class="n">${insights.tasks.open}</span><span class="label">${s('insights.tasks')}</span></div>
+          <div class="st-stat"><span class="n">${insights.tasks.due}</span><span class="label">${s('insights.due')}</span></div>
+          <div class="st-stat"><span class="n">${insights.usage.tokens.toLocaleString(lang)}</span><span class="label">${s('insights.tokens')}</span></div>
+          <div class="st-stat"><span class="n">${cost}</span><span class="label">${s('insights.cost')}</span></div>
+        </div>
+      </section>
+      <section class="st-section"><h3>${s('insights.importance')}</h3>${bars(insights.byImportance)}</section>
+      <section class="st-section"><h3>${s('insights.source')}</h3>${bars(insights.bySource)}</section>
+      <section class="st-section"><h3>${s('insights.category')}</h3>${bars(insights.byCategory)}</section>
+      <section class="st-section">
+        <h3>${s('insights.senders')}</h3>
+        <ul class="st-sender-list">${insights.topSenders.map((row) => `<li class="st-sender-item">
+          <div><div class="st-sender-name">${escapeHtml(row.name || row.sender)}</div><div class="st-sender-meta">${escapeHtml(row.sender)} · ${row.n}</div></div>
+        </li>`).join('') || `<li class="st-empty">${s('insights.subscriptionsEmpty')}</li>`}</ul>
+      </section>
+      <section class="st-section">
+        <h3>${s('insights.subscriptions')}</h3>
+        <ul class="st-sender-list">${senderRows || `<li class="st-empty">${s('insights.subscriptionsEmpty')}</li>`}</ul>
+      </section>
+      <section class="st-section">
+        <h3>${s('insights.suggested')}</h3>
+        ${insights.suggestedMute.length
+          ? insights.suggestedMute.map((sender) => `<span class="st-chip">${escapeHtml(sender)}</span>`).join('')
+          : `<p class="st-help">${s('insights.suggestedEmpty')}</p>`}
+        ${feedback ? `<p class="st-help">${s('insights.feedback')}: ${feedback}</p>` : ''}
+      </section>
+    </main>
+    <script nonce="${nonce}">${storeLanguageScript()}
+    document.querySelectorAll('[data-mute]').forEach(function (button) {
+      button.addEventListener('click', async function () {
+        button.disabled = true;
+        try {
+          var response = await fetch('/api/admin/insights/mute', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({ sender: button.dataset.mute }),
+          });
+          if (!response.ok) throw new Error((await response.json().catch(function () { return {}; })).error || 'failed');
+          button.textContent = ${JSON.stringify(d['insights.muted']).replace(/</g, '\\u003c')};
+        } catch (error) { button.disabled = false; alert(error.message); }
+      });
+    });</script>`, nonce);
 }
 
 

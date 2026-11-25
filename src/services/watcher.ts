@@ -484,6 +484,7 @@ export class Watcher {
         ? { verificationCode: result.verificationCode }
         : {}),
       ...(message.attachmentManifest ? { attachmentManifest: message.attachmentManifest } : {}),
+      ...(message.unsubscribeUrl ? { unsubscribeUrl: message.unsubscribeUrl } : {}),
     };
   }
 
@@ -512,8 +513,9 @@ export class Watcher {
         body,
         hasAttachments: Boolean(row.attachmentManifest?.items.length),
         ...(row.attachmentManifest ? { attachmentManifest: row.attachmentManifest } : {}),
-        // Recipients and List-Unsubscribe were not retained in local state.
-        listUnsubscribe: false,
+        ...(row.unsubscribeUrl ? { unsubscribeUrl: row.unsubscribeUrl } : {}),
+        // Recipients were not retained in local state; the unsubscribe link is.
+        listUnsubscribe: Boolean(row.unsubscribeUrl),
       };
     });
 

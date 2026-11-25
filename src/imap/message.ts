@@ -62,6 +62,8 @@ export interface MailMessage {
   /** Lightweight MIME metadata only. File contents are fetched separately. */
   attachmentManifest?: AttachmentManifest;
   listUnsubscribe: boolean;
+  /** An https one-click unsubscribe URL from the List-Unsubscribe header, when present. */
+  unsubscribeUrl?: string;
   /** Synthetic messages (digest and health alerts) use this to select rendering. */
   extra?: Record<string, unknown>;
 }

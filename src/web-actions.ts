@@ -1990,6 +1990,68 @@ async function handlePush(path: string, req: IncomingMessage, store: StateStore,
  *
  * The caller has already established the session and refused cross-site POSTs.
  */
+/** The action centre's tasks, waiting-for replies and dated messages in one answer. */
+function actionCentre(store: StateStore): WebResponse {
+  return json(200, {
+    tasks: store.listTasks({ limit: 200 }),
+    followUps: store.followUps(3, 40),
+    deadlines: store.deadlines(40),
+    counts: store.tasksSummary(),
+  });
+}
+
+async function handleTaskCreate(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
+  if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
+  const body = await readJson(req, 16 * 1024);
+  const title = text(body?.['title'], 500).trim();
+  if (!title) return badRequest('title is required');
+  const dueRaw = text(body?.['dueAt'], 60).trim();
+  const due = dueRaw ? new Date(dueRaw) : null;
+  if (due && Number.isNaN(due.valueOf())) return badRequest('dueAt is not a date');
+  const key = text(body?.['key'], 500).trim();
+  const row = key ? store.getMail(key) : undefined;
+  const task = store.createTask({
+    title,
+    ...(text(body?.['notes'], 2000) ? { notes: text(body?.['notes'], 2000) } : {}),
+    ...(due ? { dueAt: due.toISOString() } : {}),
+    ...(key ? { messageKey: key } : {}),
+    ...(row?.account ? { account: row.account } : {}),
+    ...(row?.messageId ? { messageId: row.messageId } : {}),
+  });
+  store.recordMcpAudit('web:task-create', ctx.client, true, task.id);
+  return json(200, { task });
+}
+
+async function handleTaskUpdate(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
+  if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
+  const body = await readJson(req, 16 * 1024);
+  const id = text(body?.['id'], 40);
+  if (!id) return badRequest('id is required');
+  const dueRaw = body && 'dueAt' in body ? text(body['dueAt'], 60).trim() : undefined;
+  const due = dueRaw === undefined ? undefined : (dueRaw ? new Date(dueRaw) : null);
+  if (due && Number.isNaN(due.valueOf())) return badRequest('dueAt is not a date');
+  const status = body?.['status'] === 'done' ? 'done' : body?.['status'] === 'open' ? 'open' : undefined;
+  const task = store.updateTask(id, {
+    ...(typeof body?.['title'] === 'string' ? { title: text(body['title'], 500) } : {}),
+    ...(body && 'notes' in body ? { notes: text(body['notes'], 2000) || null } : {}),
+    ...(due !== undefined ? { dueAt: due ? due.toISOString() : null } : {}),
+    ...(status ? { status } : {}),
+  });
+  if (!task) return json(404, { error: 'task not found', code: 'notFound' });
+  store.recordMcpAudit('web:task-update', ctx.client, true, id);
+  return json(200, { task });
+}
+
+async function handleTaskDelete(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
+  if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
+  const body = await readJson(req, 4096);
+  const id = text(body?.['id'], 40);
+  if (!id) return badRequest('id is required');
+  if (!store.deleteTask(id)) return json(404, { error: 'task not found', code: 'notFound' });
+  store.recordMcpAudit('web:task-delete', ctx.client, true, id);
+  return json(200, { deleted: true });
+}
+
 export async function routeActions(
   req: IncomingMessage,
   url: URL,
@@ -2003,9 +2065,13 @@ export async function routeActions(
   try {
     const answer = await (async (): Promise<WebResponse | undefined> => {
       if (path.startsWith('/api/push/')) return handlePush(path, req, store, ctx);
+      if (path === '/api/action-center' && req.method === 'GET') return actionCentre(store);
       if (path === '/api/reply' && req.method === 'GET') return handleReply(url.searchParams, store, ctx);
       if (path === '/api/forward' && req.method === 'GET') return handleForward(url.searchParams, store, ctx);
       if (req.method !== 'POST') return undefined;
+      if (path === '/api/tasks/create') return handleTaskCreate(req, store, ctx);
+      if (path === '/api/tasks/update') return handleTaskUpdate(req, store, ctx);
+      if (path === '/api/tasks/delete') return handleTaskDelete(req, store, ctx);
       if (path === '/api/handled') return handleHandled(req, store, ctx, life);
       if (path === '/api/snooze') return handleSnooze(req, store, ctx, life);
       if (path === '/api/action') return handleAction(req, store, ctx, life);

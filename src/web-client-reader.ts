@@ -530,6 +530,12 @@ function renderMessage(row, data, section, hooks) {
     a.appendChild(icon('i-arrow'));
     hooks.actions.appendChild(a);
   }
+  if (hooks.actions && row.dedupKey && !hooks.actions.querySelector('.add-task')) {
+    const task = el('button', 'text-btn quiet small add-task', t('action.addTask'));
+    task.type = 'button';
+    task.onclick = () => openTaskFor(row);
+    hooks.actions.appendChild(task);
+  }
   const hasHtml = Boolean(data.html);
   const state = { mode: hasHtml && readerMode === 'html' ? 'html' : 'text', images: imagesAllowed(row, data), fit: true, overflows: false, height: 0 };
   const head = el('div', 'message-head');

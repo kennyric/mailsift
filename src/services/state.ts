@@ -5,6 +5,7 @@
  * The main service and MCP share this database, and atomic updates protect cursor
  * writes and the "mark only after triage" invariant.
  */
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -40,8 +41,20 @@ CREATE TABLE IF NOT EXISTS seen (
   importance TEXT, category TEXT, summary TEXT, reason TEXT, deadline TEXT,
   decided_by TEXT, pushed INTEGER NOT NULL DEFAULT 0,
   mail_date TEXT, snippet TEXT, attachments_json TEXT, verification_code TEXT, handled_at TEXT,
-  uid INTEGER, uid_validity TEXT, snoozed_until TEXT,
+  uid INTEGER, uid_validity TEXT, snoozed_until TEXT, unsubscribe_url TEXT,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  notes TEXT,
+  due_at TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','done')),
+  message_key TEXT,
+  account TEXT,
+  message_id TEXT,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS digest_queue (
   dedup_key TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at TEXT NOT NULL
@@ -80,6 +93,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_seen_created ON seen (created_at);
 CREATE INDEX IF NOT EXISTS idx_seen_importance ON seen (importance);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_due ON tasks (status, due_at);
 CREATE INDEX IF NOT EXISTS idx_mail_actions_created ON mail_actions (created_at);
 CREATE TABLE IF NOT EXISTS owner_filed (
   dedup_key TEXT PRIMARY KEY, account TEXT NOT NULL, created_at TEXT NOT NULL
@@ -147,6 +161,8 @@ export interface MailRecord {
   snippet?: string;
   verificationCode?: string;
   attachmentManifest?: AttachmentManifest;
+  /** A one-click-style https unsubscribe link from List-Unsubscribe, when it had one. */
+  unsubscribeUrl?: string;
   /**
    * Where the message is in its folder: its UID, and the folder's UIDVALIDITY
    * that the UID belongs to. With these a message is fetched directly when it
@@ -195,6 +211,54 @@ export interface MailRow {
   /** Extracted one-time code, kept locally so the web view can show it. */
   verificationCode?: string;
   attachmentManifest?: AttachmentManifest | null;
+  /** An https unsubscribe link from the sender's List-Unsubscribe header. */
+  unsubscribeUrl?: string | null;
+}
+
+export interface TaskRow {
+  id: string;
+  title: string;
+  notes: string | null;
+  dueAt: string | null;
+  status: 'open' | 'done';
+  messageKey: string | null;
+  account: string | null;
+  messageId: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface Insights {
+  days: number;
+  total: number;
+  byImportance: Array<{ name: string; n: number }>;
+  byCategory: Array<{ name: string; n: number }>;
+  bySource: Array<{ name: string; n: number }>;
+  topSenders: Array<{ sender: string; name: string; n: number; lastAt: string }>;
+  tasks: { open: number; due: number; done: number };
+  usage: { tokens: number; costTicks: number };
+  feedback: Record<string, number>;
+  suggestedMute: string[];
+  subscriptions: SubscriptionSummary[];
+}
+
+export interface SubscriptionSummary {
+  sender: string;
+  name: string;
+  count: number;
+  lastAt: string;
+  unsubscribeUrl: string | null;
+  category: string | null;
+}
+
+export interface FollowUp {
+  key: string;
+  account: string;
+  accountLabel: string | null;
+  subject: string | null;
+  recipient: string;
+  sentAt: string;
+  daysWaiting: number;
 }
 
 export interface QueryOptions {
@@ -627,7 +691,8 @@ export function notificationRetryDelayMs(attempt: number): number {
 const ROW_COLUMNS = [
   'dedup_key', 'message_id', 'thread_key', 'account', 'account_label', 'subject', 'sender', 'sender_name',
   'folder', 'in_spam', 'importance', 'category', 'summary', 'reason', 'deadline',
-  'decided_by', 'pushed', 'withheld', 'mail_date', 'attachments_json', 'verification_code', 'handled_at', 'snoozed_until', 'created_at',
+  'decided_by', 'pushed', 'withheld', 'mail_date', 'attachments_json', 'verification_code', 'handled_at', 'snoozed_until',
+  'unsubscribe_url', 'created_at',
 ] as const;
 
 function parseAttachmentManifest(value: unknown): AttachmentManifest | null {
@@ -689,6 +754,22 @@ function toRow(raw: Record<string, unknown>): MailRow {
     ...(raw['snippet'] !== undefined ? { snippet: raw['snippet'] as string } : {}),
     ...(raw['verification_code'] ? { verificationCode: String(raw['verification_code']) } : {}),
     attachmentManifest: parseAttachmentManifest(raw['attachments_json']),
+    ...(raw['unsubscribe_url'] ? { unsubscribeUrl: String(raw['unsubscribe_url']) } : {}),
+  };
+}
+
+function toTask(raw: Record<string, unknown>): TaskRow {
+  return {
+    id: String(raw['id'] ?? ''),
+    title: String(raw['title'] ?? ''),
+    notes: (raw['notes'] as string) ?? null,
+    dueAt: (raw['due_at'] as string) ?? null,
+    status: raw['status'] === 'done' ? 'done' : 'open',
+    messageKey: (raw['message_key'] as string) ?? null,
+    account: (raw['account'] as string) ?? null,
+    messageId: (raw['message_id'] as string) ?? null,
+    createdAt: String(raw['created_at'] ?? ''),
+    completedAt: (raw['completed_at'] as string) ?? null,
   };
 }
 
@@ -738,6 +819,7 @@ export class StateStore {
     for (const [name, definition] of [
       ['attachments_json', 'TEXT'], ['thread_key', 'TEXT'], ['verification_code', 'TEXT'], ['handled_at', 'TEXT'],
       ['uid', 'INTEGER'], ['uid_validity', 'TEXT'], ['snoozed_until', 'TEXT'],
+      ['unsubscribe_url', 'TEXT'],
       ['kept_at', 'TEXT'], ['withheld', 'INTEGER NOT NULL DEFAULT 0'], ['done_by_spam', 'INTEGER NOT NULL DEFAULT 0'],
     ] as const) {
       if (seenColumns.some((column) => column['name'] === name)) continue;
@@ -974,7 +1056,7 @@ export class StateStore {
         `UPDATE seen SET importance = ?, pushed = ?, message_id = ?, thread_key = ?, account_label = ?,
            sender = ?, sender_name = ?, folder = ?, in_spam = ?, category = ?,
            summary = ?, reason = ?, deadline = ?, decided_by = ?, mail_date = ?, snippet = ?, attachments_json = ?,
-           verification_code = ?, uid = COALESCE(?, uid), uid_validity = COALESCE(?, uid_validity)
+           verification_code = ?, unsubscribe_url = ?, uid = COALESCE(?, uid), uid_validity = COALESCE(?, uid_validity)
          WHERE dedup_key = ?`,
       )
       .run(
@@ -986,6 +1068,7 @@ export class StateStore {
         fields.decidedBy ?? null, fields.mailDate ?? null, fields.snippet ?? null,
         fields.attachmentManifest ? JSON.stringify(fields.attachmentManifest) : null,
         fields.verificationCode ?? null,
+        fields.unsubscribeUrl ?? null,
         // A second verdict is made from the stored row and knows no UID; what the poll recorded stays.
         fields.uid && fields.uid > 0 && fields.uidValidity ? fields.uid : null,
         fields.uid && fields.uid > 0 && fields.uidValidity ? fields.uidValidity : null,
@@ -1021,6 +1104,203 @@ export class StateStore {
 
   dropUndispatched(): number {
     return Number(this.db.prepare('DELETE FROM seen WHERE importance IS NULL').run().changes);
+  }
+
+  // ---- Action centre ----
+
+  createTask(input: { title: string; notes?: string; dueAt?: string | null; messageKey?: string; account?: string; messageId?: string }): TaskRow {
+    const id = randomUUID().replace(/-/g, '').slice(0, 16);
+    const now = new Date().toISOString();
+    this.db.prepare(
+      `INSERT INTO tasks (id, title, notes, due_at, status, message_key, account, message_id, created_at)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?)`,
+    ).run(
+      id, input.title.slice(0, 500), input.notes?.slice(0, 2000) ?? null,
+      input.dueAt || null, input.messageKey ?? null, input.account ?? null, input.messageId ?? null, now,
+    );
+    return this.listTasks({ limit: 200 }).find((task) => task.id === id)!;
+  }
+
+  listTasks(options: { status?: 'open' | 'done'; limit?: number } = {}): TaskRow[] {
+    const clauses = options.status ? 'WHERE status = ?' : '';
+    const params: Array<string | number> = options.status ? [options.status] : [];
+    params.push(Math.max(1, Math.min(Math.floor(options.limit ?? 200), 500)));
+    const rows = this.db.prepare(
+      `SELECT id, title, notes, due_at, status, message_key, account, message_id, created_at, completed_at
+       FROM tasks ${clauses}
+       ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END,
+                CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, created_at DESC
+       LIMIT ?`,
+    ).all(...params) as Array<Record<string, unknown>>;
+    return rows.map(toTask);
+  }
+
+  updateTask(id: string, change: { title?: string; notes?: string | null; dueAt?: string | null; status?: 'open' | 'done' }): TaskRow | undefined {
+    const current = this.listTasks({ limit: 500 }).find((task) => task.id === id);
+    if (!current) return undefined;
+    const status = change.status ?? current.status;
+    this.db.prepare(
+      `UPDATE tasks SET title = ?, notes = ?, due_at = ?, status = ?, completed_at = ? WHERE id = ?`,
+    ).run(
+      change.title?.slice(0, 500) ?? current.title,
+      change.notes === undefined ? current.notes : change.notes?.slice(0, 2000) ?? null,
+      change.dueAt === undefined ? current.dueAt : change.dueAt || null,
+      status,
+      status === 'done' ? (current.completedAt ?? new Date().toISOString()) : null,
+      id,
+    );
+    return this.listTasks({ limit: 500 }).find((task) => task.id === id);
+  }
+
+  deleteTask(id: string): boolean {
+    return Number(this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id).changes) > 0;
+  }
+
+  tasksSummary(now = new Date()): { open: number; due: number; done: number } {
+    const rows = this.db.prepare(
+      `SELECT status, COUNT(*) AS n,
+         SUM(CASE WHEN status = 'open' AND due_at IS NOT NULL AND due_at <= ? THEN 1 ELSE 0 END) AS due
+       FROM tasks GROUP BY status`,
+    ).all(now.toISOString()) as Array<Record<string, unknown>>;
+    const out = { open: 0, due: 0, done: 0 };
+    for (const row of rows) {
+      if (row['status'] === 'open') out.open = Number(row['n'] ?? 0);
+      if (row['status'] === 'done') out.done = Number(row['n'] ?? 0);
+      out.due += Number(row['due'] ?? 0);
+    }
+    return out;
+  }
+
+  /**
+   * Sent mail that is the latest message in its thread and has waited for a
+   * reply. A thread with any later received message, or a later sent one, is
+   * not waiting; a reply sent from another client is found in sent_mail too.
+   */
+  followUps(waitDays = 3, limit = 50): FollowUp[] {
+    const cutoff = new Date(Date.now() - Math.max(1, waitDays) * 86_400_000).toISOString();
+    const rows = this.db.prepare(
+      `SELECT s.account, s.account_label, s.subject, s.from_addr, s.recipients,
+              COALESCE(s.mail_date, s.created_at) AS at
+       FROM sent_mail s
+       WHERE COALESCE(s.mail_date, s.created_at) < ?
+         AND NOT EXISTS (SELECT 1 FROM sent_mail later
+                         WHERE later.thread_key = s.thread_key
+                           AND COALESCE(later.mail_date, later.created_at) > COALESCE(s.mail_date, s.created_at))
+         AND NOT EXISTS (SELECT 1 FROM seen r
+                         WHERE r.thread_key = s.thread_key
+                           AND COALESCE(r.mail_date, r.created_at) > COALESCE(s.mail_date, s.created_at))
+       ORDER BY at DESC LIMIT ?`,
+    ).all(cutoff, Math.max(1, Math.min(limit, 200))) as Array<Record<string, unknown>>;
+    return rows.map((row, index) => {
+      const at = String(row['at'] ?? '');
+      let recipient = String(row['from_addr'] ?? '');
+      try {
+        const list = JSON.parse(String(row['recipients'] ?? '[]')) as unknown;
+        const first = Array.isArray(list) ? list[0] as unknown : undefined;
+        if (typeof first === 'string') recipient = first;
+        else if (first && typeof first === 'object' && typeof (first as { address?: unknown }).address === 'string') {
+          recipient = (first as { address: string }).address;
+        }
+      } catch { /* the sender is the fallback */ }
+      const days = Math.max(0, Math.floor((Date.now() - Date.parse(at)) / 86_400_000));
+      return {
+        key: `${row['account']}|${at}|${index}`,
+        account: String(row['account'] ?? ''),
+        accountLabel: (row['account_label'] as string) ?? null,
+        subject: (row['subject'] as string) ?? null,
+        recipient,
+        sentAt: at,
+        daysWaiting: Number.isFinite(days) ? days : 0,
+      };
+    });
+  }
+
+  /** Aggregates behind the insights page: what was judged, by whom, and what it cost. */
+  insights(days = 30): Insights {
+    const since = new Date(Date.now() - Math.max(1, Math.min(days, 3650)) * 86_400_000).toISOString();
+    const group = (column: string, limit = 8): Array<{ name: string; n: number }> => (
+      this.db.prepare(
+        `SELECT ${column} AS name, COUNT(*) AS n FROM seen
+         WHERE created_at >= ? AND ${column} IS NOT NULL AND ${column} != ''
+         GROUP BY ${column} ORDER BY n DESC LIMIT ?`,
+      ).all(since, limit) as Array<Record<string, unknown>>
+    ).map((row) => ({ name: String(row['name']), n: Number(row['n'] ?? 0) }));
+    const total = Number((this.db.prepare('SELECT COUNT(*) AS n FROM seen WHERE created_at >= ?').get(since) as
+      { n: number } | undefined)?.n ?? 0);
+    const topSenders = (this.db.prepare(
+      `SELECT lower(sender) AS sender, max(sender_name) AS name, COUNT(*) AS n, max(created_at) AS at
+       FROM seen WHERE created_at >= ? AND sender IS NOT NULL AND sender != ''
+       GROUP BY lower(sender) ORDER BY n DESC LIMIT 10`,
+    ).all(since) as Array<Record<string, unknown>>).map((row) => ({
+      sender: String(row['sender'] ?? ''),
+      name: String(row['name'] ?? ''),
+      n: Number(row['n'] ?? 0),
+      lastAt: String(row['at'] ?? ''),
+    }));
+    const subscriptions = (this.db.prepare(
+      `SELECT lower(sender) AS sender, max(sender_name) AS name, COUNT(*) AS n, max(created_at) AS at,
+              max(unsubscribe_url) AS unsub, max(category) AS category
+       FROM seen WHERE created_at >= ? AND sender IS NOT NULL AND sender != ''
+         AND (unsubscribe_url IS NOT NULL OR category = 'Marketing')
+       GROUP BY lower(sender) HAVING COUNT(*) >= 2 OR max(unsubscribe_url) IS NOT NULL
+       ORDER BY n DESC LIMIT 40`,
+    ).all(since) as Array<Record<string, unknown>>).map((row) => ({
+      sender: String(row['sender'] ?? ''),
+      name: String(row['name'] ?? ''),
+      count: Number(row['n'] ?? 0),
+      lastAt: String(row['at'] ?? ''),
+      unsubscribeUrl: (row['unsub'] as string) ?? null,
+      category: (row['category'] as string) ?? null,
+    }));
+    const usage = (this.db.prepare(
+      "SELECT key, value FROM meta WHERE key LIKE 'llm_tokens_%' OR key LIKE 'llm_cost_ticks_%'",
+    ).all() as Array<{ key: string; value: string }>).reduce((sum, row) => {
+      const day = row.key.replace(/^llm_(tokens|cost_ticks)_/, '');
+      if (day < since.slice(0, 10)) return sum;
+      if (row.key.startsWith('llm_tokens_')) sum.tokens += Number(row.value) || 0;
+      else sum.costTicks += Number(row.value) || 0;
+      return sum;
+    }, { tokens: 0, costTicks: 0 });
+    return {
+      days,
+      total,
+      byImportance: group('importance'),
+      byCategory: group('category'),
+      bySource: group('decided_by'),
+      topSenders,
+      tasks: this.tasksSummary(),
+      usage,
+      feedback: this.feedbackSummary(),
+      suggestedMute: this.feedbackRuleHints(2).neverImportant,
+      subscriptions,
+    };
+  }
+
+  /** Unhandled messages that carry an explicit deadline, nearest first when it is a date. */
+  deadlines(limit = 50): MailRow[] {
+    return (this.db.prepare(
+      `SELECT ${ROW_COLUMNS.join(', ')}, snippet FROM seen
+       WHERE handled_at IS NULL AND deadline IS NOT NULL AND deadline != ''
+       ORDER BY created_at DESC LIMIT ?`,
+    ).all(Math.max(1, Math.min(limit, 200))) as Array<Record<string, unknown>>).map(toRow);
+  }
+
+  /** The rows an assistant should consider first for a question, even beyond the recent scan. */
+  searchForAsk(question: string, limit = 400): MailRow[] {
+    const fts = question.trim().split(/\s+/).filter(Boolean).slice(0, 12)
+      .map((term) => `"${term.replace(/"/g, '""')}"*`).join(' AND ');
+    if (!fts) return [];
+    try {
+      const rows = this.db.prepare(
+        `SELECT ${ROW_COLUMNS.join(', ')}, snippet FROM seen
+         WHERE rowid IN (SELECT rowid FROM seen_fts WHERE seen_fts MATCH ?)
+           AND importance IS NOT NULL
+         ORDER BY created_at DESC LIMIT ?`,
+      ).all(fts, Math.max(1, Math.min(limit, 800))) as Array<Record<string, unknown>>;
+      return rows.map(toRow);
+    } catch {
+      return [];
+    }
   }
 
   prune(keepDays = 90): number {

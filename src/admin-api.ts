@@ -25,7 +25,7 @@ import {
   ACCESS_TOKEN_KEYS, checkField, crossFieldProblems, FIELD_BY_KEY, SECRET_KEYS, words, type FieldProblem,
 } from './settings-catalog.js';
 import { DARK_BAR, LIGHT_BAR } from './web-styles.js';
-import { renderAuditPage, renderClaimPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
+import { renderAuditPage, renderClaimPage, renderInsightsPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
 import { otpauthUrl } from './services/totp.js';
 import { sendTestNotification } from './services/sink.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
@@ -486,7 +486,7 @@ async function testModel(values: Record<string, string>, lang: Language): Promis
 // Routes
 // ---------------------------------------------------------------------------
 
-const PAGES = new Set(['/setup', '/settings', '/users', '/activity']);
+const PAGES = new Set(['/setup', '/settings', '/users', '/activity', '/insights']);
 
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
@@ -508,6 +508,14 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     if (path === '/activity') {
       if (ctx.user.role !== 'owner') return redirect('/settings');
       return htmlPage(renderAuditPage(lang, ctx.nonce, ctx.version, listAdminAudit(200)), ctx.nonce, ctx.theme);
+    }
+    if (path === '/insights') {
+      const own = new StateStore(storePathFor(ctx.user.id));
+      try {
+        return htmlPage(renderInsightsPage(lang, ctx.nonce, ctx.version, own.insights(30)), ctx.nonce, ctx.theme);
+      } finally {
+        own.close();
+      }
     }
     if (path === '/users') {
       if (ctx.user.role !== 'owner') return redirect('/settings');
@@ -785,6 +793,19 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       disableTotp(ctx.user.id);
       recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'totp.disable', success: true });
       return ok({ enabled: false });
+    }
+
+    case '/api/admin/insights/mute': {
+      const sender = text(body['sender'], 320).toLowerCase();
+      if (!sender || !sender.includes('@')) return fail(400, 'bad_sender', 'sender is required');
+      const doc = updateSettingsFor(ctx.user.id, (d) => {
+        const current = (d.values['MAIL_NEVER_IMPORTANT'] ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+        if (!current.includes(sender)) current.push(sender);
+        d.values['MAIL_NEVER_IMPORTANT'] = current.join(',');
+      });
+      const applied = apply(doc, 'a sender was muted');
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'insights.mute', target: sender, success: true });
+      return ok({ muted: true, applied });
     }
 
     case '/api/admin/mcp-tokens/create': {

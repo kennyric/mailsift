@@ -1272,6 +1272,10 @@ function forgetLocal() {
 let bootKey = keyFromHash(location.hash);
 const bootParams = new URLSearchParams(location.search);
 const wantsCode = bootParams.get('focus') === 'code';
+const wantsActions = bootParams.get('focus') === 'actions';
+const sharedTitle = bootParams.get('share_title') || '';
+const sharedText = bootParams.get('share_text') || '';
+const sharedUrl = bootParams.get('share_url') || '';
 // Reloaded with the reader open on a phone: its entry is kept, and the reader opens on it again.
 let bootOnEntry = false;
 stripStaleEntry();
@@ -1306,6 +1310,11 @@ function afterFirstLoad() {
     bootOnEntry = false;
   }
   if (wantsCode) focusCode();
+  if (wantsActions) openActionCenter();
+  if (sharedText || sharedUrl) {
+    startSharedCompose({ subject: sharedTitle, text: sharedText, url: sharedUrl });
+    history.replaceState(history.state, '', location.pathname);
+  }
   syncUrl();
 }
 `;
