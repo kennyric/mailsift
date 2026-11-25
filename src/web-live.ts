@@ -14,7 +14,7 @@
  * timer serves every page, and it runs only while a page is listening.
  */
 import { getLogger } from './logger.js';
-import { StateStore } from './services/state.js';
+import { StateStore, storePathFor } from './services/state.js';
 
 const log = getLogger('live');
 
@@ -197,5 +197,25 @@ export class LiveHub {
   }
 }
 
-/** The hub the web routes share. */
-export const liveHub = new LiveHub();
+/** One hub per user: a stream must only ever announce that user's database. */
+const hubs = new Map<string, LiveHub>();
+
+export function liveHubFor(userID: string): LiveHub {
+  let hub = hubs.get(userID);
+  if (!hub) {
+    hub = new LiveHub({ openStore: () => new StateStore(storePathFor(userID)) });
+    hubs.set(userID, hub);
+  }
+  return hub;
+}
+
+/** Drop a deleted or disabled user's stream and its handle. */
+export function releaseLiveHub(userID: string): void {
+  const hub = hubs.get(userID);
+  if (!hub) return;
+  hub.close();
+  hubs.delete(userID);
+}
+
+/** The owner's hub, kept for tests and tools that predate the registry. */
+export const liveHub = liveHubFor('owner');

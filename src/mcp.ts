@@ -29,7 +29,7 @@ import {
   exactHint, handleShaped, LIVE_PAGE_DEFAULT, LIVE_PAGE_MAX, parseLiveHandle, SEARCH_SCAN_MESSAGES, useHandleKey,
 } from './imap/mailbox.js';
 import { BULK_MAX, bulkAct, folderList, folderPage, mailboxSearch, type BulkAction } from './web-mailbox.js';
-import { CONVERSATION_LIMIT, doneListDays, MAX_CONTACTS, StateStore } from './services/state.js';
+import { CONVERSATION_LIMIT, doneListDays, MAX_CONTACTS, StateStore, storePathFor } from './services/state.js';
 import type { FeedbackLabel, MailRow, NotificationOutboxRow } from './services/state.js';
 import {
   CATEGORIES, pushThreshold, resolveLlmBaseUrl, spamBonus, spamBonusWarning, suppressSelfForwards,
@@ -37,7 +37,9 @@ import {
 import { retryAttempts } from './services/delivery.js';
 import { HEARTBEAT_KEY, IDLE_WAKE_KEY, type PollStats } from './services/watcher.js';
 import { PushDispatcher } from './services/push-dispatcher.js';
+import { listUsers, userCredentialMarks } from './services/settings-store.js';
 import { publicAsset, routeWeb, webRateLimited, webUiEnabled } from './web.js';
+import { userSessionOf } from './admin-api.js';
 import { APP_VERSION } from './version.js';
 import { insecureChannelResponse, requestChannel } from './web-access.js';
 import { bootId, serverMode, startedAt } from './services/runtime-control.js';
@@ -47,7 +49,7 @@ import {
   SIGNATURE_MAX_CHARS, signatureOf, snoozeMail, webPushEnabled, whereabouts, type WebBackend,
 } from './web-actions.js';
 import { timedOut, within, type WebResponse } from './web-http.js';
-import { credentialMark, localHost, secretEquals } from './web-http.js';
+import { credentialMark, localHost, presentedToken, secretEquals } from './web-http.js';
 import { warmSession } from './imap/connection.js';
 import { idleEnabled, idleFolderTokens } from './imap/idle.js';
 import {
@@ -2206,14 +2208,25 @@ export function createServer(
 export function healthReport(): { status: 'ok' | 'stale'; mode: string; version: string; boot: string; lastPollAt?: string } {
   const base = { mode: serverMode(), version: APP_VERSION, boot: bootId() };
   if (serverMode() !== 'running') return { status: 'ok', ...base };
+  // The latest check across every enabled user: one user's quiet mailbox is
+  // not the instance being stale while another is polling normally.
   let last = '';
-  const db = new StateStore();
+  const users = listUsers().filter((user) => !user.disabled);
+  const paths = users.length
+    ? users.map((user) => storePathFor(user.id))
+    : [process.env.STATE_DB_PATH ?? 'data/mailsift.db'];
   try {
-    last = db.getMeta(HEARTBEAT_KEY) ?? '';
+    for (const path of paths) {
+      const db = new StateStore(path);
+      try {
+        const at = db.getMeta(HEARTBEAT_KEY) ?? '';
+        if (at && (!last || Date.parse(at) > Date.parse(last))) last = at;
+      } finally {
+        db.close();
+      }
+    }
   } catch {
     return { status: 'stale', ...base };
-  } finally {
-    db.close();
   }
   const interval = Number(process.env.POLL_INTERVAL_SECONDS ?? 300);
   const deadline = ((Number.isFinite(interval) && interval > 0 ? interval : 300) * 3 + 120) * 1000;
@@ -2236,7 +2249,7 @@ export function healthReport(): { status: 'ok' | 'stale'; mode: string; version:
  */
 export async function startMcpHttp(
   options: {
-    onRefresh?: () => Promise<PollStats>;
+    onRefresh?: (userID: string) => Promise<PollStats>;
     /** First-run setup: MCP answers 503 and the page serves only the setup. */
     setupMode?: boolean;
     /** The administrator password and the settings pages (the server; not a bare test instance). */
@@ -2308,7 +2321,13 @@ export async function startMcpHttp(
             res.writeHead(404).end();
             return;
           }
-          const webStore = new StateStore();
+          const session = userSessionOf(req);
+          // A token-only session is the owner; a public path must open no user's state.
+          const presented = presentedToken(req);
+          const tokenOwner = Boolean(presented)
+            && ((token !== '' && secretEquals(token, presented)) || (writeToken !== '' && secretEquals(writeToken, presented)));
+          const storeOwner = session?.user.id ?? (tokenOwner ? 'owner' : undefined);
+          const webStore = new StateStore(storeOwner ? storePathFor(storeOwner) : ':memory:');
           try {
             const answer = await routeWeb(req, url, token, webStore, client, {
               onRefresh: options.onRefresh,
@@ -2430,24 +2449,33 @@ export async function startMcpHttp(
   // the time for reminders, so that open pages bring them back on the minute.
   if (webUiEnabled()) {
     const notify = webPushEnabled();
-    if (notify) {
-      // A subscription belongs to the credential it was made under. One made
-      // under a token that has since been replaced is ended here, so rotating a
-      // token also stops mail being pushed to whoever held the old one.
-      const valid = [credentialMark(token), ...(writeToken ? [credentialMark(writeToken)] : [])];
-      const pruning = new StateStore();
-      try {
-        const ended = pruning.prunePushSubscriptions(valid);
-        if (ended > 0) console.error(`mailsift: ended ${ended} notification subscription(s) made under a replaced token.`);
-      } catch (error) {
-        console.error('mailsift: could not check notification subscriptions:', error);
-      } finally {
-        pruning.close();
+    const dispatchers: PushDispatcher[] = [];
+    for (const user of listUsers()) {
+      if (user.disabled) continue;
+      if (notify) {
+        // A subscription belongs to the credential it was made under. One made
+        // under a session or token that has since ended is pruned here, so a
+        // replaced credential stops mail being pushed to whoever held it.
+        const valid = userCredentialMarks(user.id);
+        if (user.role === 'owner') {
+          if (token) valid.push(credentialMark(token));
+          if (writeToken) valid.push(credentialMark(writeToken));
+        }
+        const pruning = new StateStore(storePathFor(user.id));
+        try {
+          const ended = pruning.prunePushSubscriptions(valid);
+          if (ended > 0) console.error(`mailsift: ended ${ended} notification subscription(s) for ${user.username} made under a replaced credential.`);
+        } catch (error) {
+          console.error(`mailsift: could not check notification subscriptions for ${user.username}:`, error);
+        } finally {
+          pruning.close();
+        }
       }
+      const dispatcher = new PushDispatcher({ notify, openStore: () => new StateStore(storePathFor(user.id)) });
+      dispatcher.start();
+      dispatchers.push(dispatcher);
     }
-    const dispatcher = new PushDispatcher({ notify });
-    dispatcher.start();
-    httpServer.once('close', () => dispatcher.stop());
+    httpServer.once('close', () => { for (const dispatcher of dispatchers) dispatcher.stop(); });
   }
   return httpServer;
 }

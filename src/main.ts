@@ -11,12 +11,11 @@ import { bootstrapError } from './bootstrap.js'; // Load stored settings before 
 import { realpathSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, loadConfig, loadConfigFor, setSettingsAccountsFor } from './config.js';
 import { authorizedUsernames } from './imap/auth.js';
-import { StateStore } from './services/state.js';
-import { buildSink, usesLegacyWebhookNames, webhookEndpoint, webhookToken, WebhookSink } from './services/sink.js';
+import { StateStore, storePathFor } from './services/state.js';
+import { buildSink, CompositeSink, usesLegacyWebhookNames, webhookEndpoint, webhookToken, WebhookSink } from './services/sink.js';
 import { deciderConfigured } from './services/decider.js';
 import {
   resolveLlmBaseUrl, spamBonusWarning, suppressSelfForwards, unanchoredSenderRules,
@@ -32,16 +31,13 @@ import { flushHeartbeats, heartbeatProblem, heartbeatUrl } from './services/hear
 import { getLogger } from './logger.js';
 import { metrics } from './metrics.js';
 import { startMcpHttp } from './mcp.js';
-import { issueSetupCode, ownerClaimed, readSettings, resetAdmin } from './services/settings-store.js';
-import { mailboxReadiness } from './services/settings-runtime.js';
+import { issueSetupCode, listUsers, ownerClaimed, readSettings, readSettingsFor, resetAdmin, type User } from './services/settings-store.js';
+import { mailboxReadiness, readyAccounts } from './services/settings-runtime.js';
 import {
   onRestartRequested, RESTART_EXIT_CODE, restartRequested, setServerMode, supervised, type ServerMode,
 } from './services/runtime-control.js';
 
 const log = getLogger('main');
-
-/** Backoff after startup failure to avoid a tight container restart loop. */
-const STARTUP_FAILURE_BACKOFF_MS = 30_000;
 
 let stopping = false;
 
@@ -219,35 +215,52 @@ async function healthcheck(): Promise<number> {
   }
 }
 
-/** Put messages marked without a triage result back into the pending queue. */
-function recover(): number {
-  const state = new StateStore();
-  const stuck = state.countUndispatched();
-  if (!stuck) {
+/** Put messages marked without a triage result back into the pending queue, per user. */
+function recover(onlyUser?: string): number {
+  const users = listUsers().filter((user) => !user.disabled
+    && (!onlyUser || user.username.toLowerCase() === onlyUser.toLowerCase()));
+  if (users.length === 0) {
+    console.log('No enabled user to recover.');
+    return 0;
+  }
+  let total = 0;
+  for (const user of users) {
+    const state = new StateStore(storePathFor(user.id));
+    try {
+      const stuck = state.countUndispatched();
+      if (!stuck) continue;
+      const dropped = state.dropUndispatched();
+      const cursors = state.clearCursors();
+      total += stuck;
+      console.log(`[${user.username}] cleared ${dropped} undecided records and rolled back ${cursors} UID cursors.`);
+    } finally {
+      state.close();
+    }
+  }
+  if (!total) {
     console.log('✅ No interrupted messages found.');
     return 0;
   }
-  const dropped = state.dropUndispatched();
-  const cursors = state.clearCursors();
-  console.log(`Cleared ${dropped} undecided records and rolled back ${cursors} UID cursors.`);
   console.log(`The next poll will fetch and triage using INITIAL_LOOKBACK_DAYS (currently ${process.env.INITIAL_LOOKBACK_DAYS ?? 3} days).`);
   return 0;
 }
 
-async function runForever(coordinator: PollCoordinator): Promise<void> {
+async function runForever(runtimes: UserRuntime[]): Promise<void> {
   const interval = Number(process.env.POLL_INTERVAL_SECONDS ?? 300) * 1000;
-  log.info(`mailsift started; poll interval ${interval / 1000}s`);
+  log.info(`mailsift started; poll interval ${interval / 1000}s; ${runtimes.length} mailbox group(s)`);
 
-  while (!stopping) {
-    try {
-      await coordinator.now();
-    } catch (error) {
-      // One failed poll should not stop the service; the next poll may recover.
-      log.error(`Poll failed: ${error}`);
+  await Promise.all(runtimes.map(async ({ user, coordinator }) => {
+    while (!stopping) {
+      try {
+        await coordinator.now();
+      } catch (error) {
+        // One failed poll should not stop the service; the next poll may recover.
+        log.error(`[${user.username}] poll failed: ${error}`);
+      }
+      if (stopping) break;
+      await coordinator.wait(interval);
     }
-    if (stopping) break;
-    await coordinator.wait(interval);
-  }
+  }));
   log.info('Exited');
 }
 
@@ -262,6 +275,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       healthcheck: { type: 'boolean', default: false },
       recover: { type: 'boolean', default: false },
       'reset-admin': { type: 'boolean', default: false },
+      user: { type: 'string' },
     },
     allowPositionals: false,
   });
@@ -273,19 +287,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (values['dry-run']) process.env.DRY_RUN = 'true';
   if (values.healthcheck) return healthcheck();
-  if (values.recover) return recover();
+  if (values.recover) return recover(values.user);
   if (values.check) return checkConfig();
 
   if (values['reset-admin']) {
     const code = resetAdmin();
-    console.error('The administrator password and all browser sessions have been cleared.');
+    console.error('The owner password and every browser session have been cleared.');
     console.error(`One-time setup code: ${code}`);
-    console.error(`Open ${setupAddress()}/ and use the code to choose a new password.`);
+    console.error(`Open ${setupAddress()}/ and use the code to choose a new owner password.`);
     return 0;
   }
 
   if (!values.once && !values['digest-now']) return serve();
-  return runOnce(values.once, values['digest-now']);
+  return runOnce(values.once, values['digest-now'], values.user);
 }
 
 /** Where the page is reached on this machine, for the messages in the log. */
@@ -319,16 +333,21 @@ function announceSetup(code: string | undefined, setupFinished: boolean): void {
  * finished. A settings change ends this function with RESTART_EXIT_CODE.
  */
 async function serve(): Promise<number> {
-  const doc = readSettings();
   const authorized = authorizedUsernames();
-  const readiness = doc.mailboxes.map((mailbox) => mailboxReadiness(mailbox, authorized));
-  const ready = readiness.filter((state) => state === 'ready').length;
-  const waiting = readiness.filter((state) => state === 'needs-authorization').length;
-  const mode: ServerMode = !doc.setupCompletedAt ? 'setup' : ready > 0 ? 'running' : 'idle';
+  const users = listUsers().filter((user) => !user.disabled);
+  let ready = 0;
+  let waiting = 0;
+  for (const user of users) {
+    const readiness = readSettingsFor(user.id).mailboxes.map((mailbox) => mailboxReadiness(mailbox, authorized));
+    ready += readiness.filter((state) => state === 'ready').length;
+    waiting += readiness.filter((state) => state === 'needs-authorization').length;
+  }
+  const claimed = ownerClaimed();
+  const mode: ServerMode = !claimed ? 'setup' : ready > 0 ? 'running' : 'idle';
   setServerMode(mode);
 
-  const code = ownerClaimed() ? undefined : issueSetupCode();
-  if (code || mode === 'setup') announceSetup(code, Boolean(doc.setupCompletedAt));
+  const code = claimed ? undefined : issueSetupCode();
+  if (code || mode === 'setup') announceSetup(code, claimed);
   if (!supervised()) {
     log.warn('Started without the supervisor (dist/src/server.js): saved settings will need a manual restart.');
   }
@@ -361,64 +380,97 @@ async function serveWithoutMonitoring(mode: ServerMode, waiting: number): Promis
   return restartRequested() ? RESTART_EXIT_CODE : 0;
 }
 
-/** A watcher over the mailboxes that can be checked, or a startup failure already reported. */
-async function buildWatcher(): Promise<Watcher | undefined> {
-  try {
-    return new Watcher(loadConfig(), new StateStore(), buildSink());
-  } catch (error) {
-    log.error(`Configuration error: ${error instanceof Error ? error.message : error}`);
-    if (error instanceof ConfigError) {
-      await recordStartupFailure(error, buildSink()).catch(() => undefined);
-      log.error(`Exiting in ${STARTUP_FAILURE_BACKOFF_MS / 1000}s to avoid a tight restart loop.`);
-      await sleep(STARTUP_FAILURE_BACKOFF_MS);
+interface UserRuntime {
+  user: User;
+  watcher: Watcher;
+  coordinator: PollCoordinator;
+  idle?: IdleSupervisor;
+}
+
+/** One watcher per enabled user with a ready mailbox. */
+async function buildRuntimes(onlyUser?: string): Promise<UserRuntime[]> {
+  const authorized = authorizedUsernames();
+  const runtimes: UserRuntime[] = [];
+  for (const user of listUsers()) {
+    if (user.disabled) continue;
+    if (onlyUser && user.username.toLowerCase() !== onlyUser.toLowerCase()) continue;
+    const doc = readSettingsFor(user.id);
+    const accounts = readyAccounts(doc, authorized);
+    if (accounts.length === 0) continue;
+    setSettingsAccountsFor(user.id, accounts);
+    try {
+      const config = loadConfigFor(user.id);
+      const store = new StateStore(storePathFor(user.id));
+      const sink = user.role === 'owner' ? buildSink() : new CompositeSink([]);
+      const watcher = new Watcher(config, store, sink);
+      const coordinator = new PollCoordinator(() => watcher.pollOnce());
+      const idle = idleEnabled()
+        ? new IdleSupervisor(config.accounts, async (account, folder, client) => {
+          await watcher.pollFolder(account, folder, client);
+        })
+        : undefined;
+      runtimes.push({ user, watcher, coordinator, ...(idle ? { idle } : {}) });
+    } catch (error) {
+      log.error(`[${user.username}] configuration error: ${error instanceof Error ? error.message : error}`);
+      if (user.role === 'owner' && error instanceof ConfigError) {
+        await recordStartupFailure(error, buildSink()).catch(() => undefined);
+      }
     }
-    return undefined;
   }
+  return runtimes;
 }
 
 /** --once and --digest-now, for cron and for trying things by hand. */
-async function runOnce(once: boolean | undefined, digestNow: boolean | undefined): Promise<number> {
-  const watcher = await buildWatcher();
-  if (!watcher) return 1;
-  if (digestNow) {
-    await sendDigest(watcher.state, watcher.sink);
-    return 0;
+async function runOnce(once: boolean | undefined, digestNow: boolean | undefined, onlyUser?: string): Promise<number> {
+  const runtimes = await buildRuntimes(onlyUser);
+  if (runtimes.length === 0) {
+    log.error('No user has a ready mailbox to check.');
+    return 1;
+  }
+  let failures = 0;
+  for (const runtime of runtimes) {
+    if (digestNow) {
+      await sendDigest(runtime.watcher.state, runtime.watcher.sink);
+    } else if (once) {
+      const stats = await runtime.coordinator.now();
+      failures += stats.failures.length;
+    }
   }
   if (once) {
-    const stats = await watcher.pollOnce();
     // The ping is not awaited inside the poll; a cron run must not exit before it is sent.
     await flushHeartbeats();
-    return stats.failures.length ? 2 : 0;
   }
-  return 0;
+  return failures ? 2 : 0;
 }
 
 /** Check the ready mailboxes until stopped, or until saved settings ask for a restart. */
 async function monitor(): Promise<number> {
-  const watcher = await buildWatcher();
-  if (!watcher) return 1;
+  const runtimes = await buildRuntimes();
+  if (runtimes.length === 0) {
+    log.error('No mailbox can be checked; check Settings → Mailboxes.');
+    return 1;
+  }
 
   const spamWarning = spamBonusWarning();
   if (spamWarning) log.warn(spamWarning);
 
-  // The refresh button and the scheduled loop share this, so a click during a
-  // poll joins it rather than opening a second set of IMAP connections.
-  const coordinator = new PollCoordinator(() => watcher.pollOnce());
-
-  let idle: IdleSupervisor | undefined;
-  if (idleEnabled()) {
-    idle = new IdleSupervisor(watcher.config.accounts, async (account, folder, client) => {
-      await watcher.pollFolder(account, folder, client);
-    });
-    idle.start();
-  }
+  // The refresh button and the scheduled loop share each user's coordinator,
+  // so a click during a poll joins it instead of opening a second connection.
+  for (const runtime of runtimes) runtime.idle?.start();
+  const byUser = new Map(runtimes.map((runtime) => [runtime.user.id, runtime]));
 
   let server: Server;
   try {
-    server = await startMcpHttp({ onRefresh: () => coordinator.now(), adminAuth: true });
+    server = await startMcpHttp({
+      onRefresh: (userID: string) => {
+        const runtime = byUser.get(userID);
+        return runtime ? runtime.coordinator.now() : Promise.reject(new Error('no mailbox is checked for this user'));
+      },
+      adminAuth: true,
+    });
   } catch (error) {
     log.error(`Web server failed to start: ${error}`);
-    await idle?.stop().catch(() => undefined);
+    for (const runtime of runtimes) await runtime.idle?.stop().catch(() => undefined);
     return 1;
   }
 
@@ -428,23 +480,25 @@ async function monitor(): Promise<number> {
     stopped = true;
     log.info(`${why}; exiting after the current poll.`);
     stopping = true;
-    coordinator.wake();
+    for (const runtime of runtimes) runtime.coordinator.wake();
     // Hang up on connections still being made and make no more: a poll
     // stuck on a provider that is not answering would otherwise outlast
     // the time a stop is given, and be killed.
     stopConnecting();
     // Log the IDLE sessions out now so the server keeps no zombie connections.
-    void idle?.stop().catch((error) => log.warn(`Failed to stop IDLE listeners: ${error}`));
+    for (const runtime of runtimes) {
+      void runtime.idle?.stop().catch((error) => log.warn(`Failed to stop IDLE listeners for ${runtime.user.username}: ${error}`));
+    }
     void metrics.shutdown().catch((error) => log.warn(`Failed to flush OTel metrics: ${error}`));
   };
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => stop(`Received ${signal}`));
   onRestartRequested(() => stop('Restarting to apply settings'));
 
-  await runForever(coordinator);
+  await runForever(runtimes);
   // The page stays up while the last poll finishes, so it can see the restart through.
   server.close();
   server.closeAllConnections();
-  await idle?.stop().catch((error) => log.warn(`Failed to stop IDLE listeners: ${error}`));
+  for (const runtime of runtimes) await runtime.idle?.stop().catch((error) => log.warn(`Failed to stop IDLE listeners: ${error}`));
   return restartRequested() ? RESTART_EXIT_CODE : 0;
 }
 

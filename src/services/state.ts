@@ -5,9 +5,9 @@
  * The main service and MCP share this database, and atomic updates protect cursor
  * writes and the "mark only after triage" invariant.
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * node:sqlite was added in Node 22.5 but is not yet listed in
@@ -104,6 +104,31 @@ CREATE TABLE IF NOT EXISTS sent_cursors (
   updated_at TEXT NOT NULL
 );
 `;
+
+/**
+ * Where one user's mail state lives.
+ *
+ * The owner keeps the single database older installs already have; everyone
+ * else gets a file of their own under `users/`, next to it. A separate file is
+ * what makes cross-user reads impossible at the storage layer rather than at
+ * every query.
+ */
+export function storePathFor(userID: string): string {
+  const base = process.env.STATE_DB_PATH ?? 'data/mailsift.db';
+  if (userID === 'owner' || base === ':memory:') return base;
+  const dir = join(dirname(base), 'users');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return join(dir, `${userID}.db`);
+}
+
+/** Remove a deleted user's state file, WAL and shared-memory file. The owner's legacy file is never touched. */
+export function removeStore(userID: string): void {
+  if (userID === 'owner' || (process.env.STATE_DB_PATH ?? '') === ':memory:') return;
+  const base = storePathFor(userID);
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { unlinkSync(base + suffix); } catch { /* already gone */ }
+  }
+}
 
 export interface MailRecord {
   messageId?: string;
@@ -1966,6 +1991,12 @@ export class StateStore {
 
   deletePushSubscription(endpoint: string): boolean {
     return Number(this.db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint).changes) > 0;
+  }
+
+  /** End the subscriptions made by one session credential, as on sign-out. */
+  deletePushSubscriptionsByCredential(credential: string): number {
+    if (!credential) return 0;
+    return Number(this.db.prepare('DELETE FROM push_subscriptions WHERE credential = ?').run(credential).changes);
   }
 
   /**

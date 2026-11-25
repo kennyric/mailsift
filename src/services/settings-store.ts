@@ -130,16 +130,19 @@ function database(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS user_sessions (
       token_hash TEXT PRIMARY KEY,
       user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      credential TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
   `);
+  addColumnIfMissing(db, 'user_sessions', 'credential', "TEXT NOT NULL DEFAULT ''");
   if (path !== ':memory:') {
     try { chmodSync(path, 0o600); } catch { /* not ours to change, e.g. a read-only mount */ }
   }
   connection = { path, db };
   migrateUsers(db);
+  ensureSplit(db);
   return db;
 }
 
@@ -148,6 +151,13 @@ export function closeSettingsStore(): void {
   try { connection?.db.close(); } catch { /* already closed */ }
   connection = undefined;
   cachedKey = undefined;
+}
+
+function addColumnIfMissing(db: DatabaseSync, table: string, column: string, declaration: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>;
+  if (!columns.some((entry) => entry.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
+  }
 }
 
 function transaction<T>(db: DatabaseSync, work: () => T): T {
@@ -181,6 +191,22 @@ function migrateUsers(db: DatabaseSync): void {
     db.prepare(`INSERT INTO users (id, username, password_hash, role, disabled, created_at, changed_at)
       VALUES ('owner', 'owner', ?, 'owner', 0, ?, ?)`).run(admin.password_hash, now, now);
     db.prepare('DELETE FROM settings_admin_sessions').run();
+  });
+}
+
+/** Split a pre-multi-user document once: shared values, and the owner's mailboxes. */
+function ensureSplit(db: DatabaseSync): void {
+  const already = db.prepare('SELECT 1 FROM settings_store WHERE key = ?').get(SHARED_ROW);
+  if (already) return;
+  const legacyRaw = readSealed(SETTINGS_ROW);
+  if (legacyRaw === undefined) return;
+  const legacy = parseDocument(legacyRaw);
+  transaction(db, () => {
+    writeSealed(SHARED_ROW, JSON.stringify({ values: legacy.values }));
+    writeSealed(mailboxRow('owner'), JSON.stringify({
+      mailboxes: legacy.mailboxes,
+      ...(legacy.setupCompletedAt ? { setupCompletedAt: legacy.setupCompletedAt } : {}),
+    }));
   });
 }
 
@@ -311,19 +337,136 @@ function parseDocument(raw: string | undefined): SettingsDocument {
   };
 }
 
-export function readSettings(): SettingsDocument {
-  return parseDocument(readSealed(SETTINGS_ROW));
+// ---------------------------------------------------------------------------
+// The split documents: shared scalars, and one mailbox list per user
+// ---------------------------------------------------------------------------
+
+const SHARED_ROW = 'shared.v1';
+const mailboxRow = (userID: string): string => `mailboxes.v1:${userID}`;
+
+/** A mailbox address already belongs to somebody else on this instance. */
+export class MailboxConflictError extends Error {
+  override name = 'MailboxConflictError';
+  constructor(readonly address: string, readonly ownerID: string) {
+    super(`${address} is already monitored by another account.`);
+  }
 }
 
-/** Change the document atomically: concurrent saves from two tabs cannot lose each other's changes. */
-export function updateSettings(change: (doc: SettingsDocument) => void): SettingsDocument {
+/** A member tried to change the owner's shared scalar settings. */
+export class SharedSettingsDenied extends Error {
+  override name = 'SharedSettingsDenied';
+  constructor() { super('Only the owner can change the shared settings.'); }
+}
+
+function readShared(): { values: Record<string, string> } {
+  const raw = readSealed(SHARED_ROW);
+  if (raw) return { values: parseDocument(raw).values };
+  // Before the split, one document held everything.
+  return { values: parseDocument(readSealed(SETTINGS_ROW)).values };
+}
+
+function readMailboxDocument(userID: string): { mailboxes: MailboxSettings[]; setupCompletedAt?: string } {
+  const raw = readSealed(mailboxRow(userID));
+  if (raw) {
+    const doc = parseDocument(raw);
+    return { mailboxes: doc.mailboxes, ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}) };
+  }
+  if (userID === 'owner') {
+    const legacy = parseDocument(readSealed(SETTINGS_ROW));
+    return { mailboxes: legacy.mailboxes, ...(legacy.setupCompletedAt ? { setupCompletedAt: legacy.setupCompletedAt } : {}) };
+  }
+  return { mailboxes: [] };
+}
+
+/** The document a user sees: shared scalars plus their own mailboxes. */
+export function readSettingsFor(userID: string): SettingsDocument {
+  const shared = readShared();
+  const boxes = readMailboxDocument(userID);
+  return {
+    values: { ...shared.values },
+    mailboxes: boxes.mailboxes,
+    ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
+  };
+}
+
+/** The owner's view, kept for CLI tools and paths that predate the split. */
+export function readSettings(): SettingsDocument {
+  return readSettingsFor('owner');
+}
+
+function roleOf(userID: string): UserRole | undefined {
+  const row = database().prepare('SELECT role FROM users WHERE id = ?').get(userID) as { role: UserRole } | undefined;
+  return row?.role;
+}
+
+/** The first other user who already lists one of these addresses, if any. */
+function mailboxClash(userID: string, mailboxes: MailboxSettings[]): { address: string; ownerID: string } | undefined {
+  const wanted = new Map<string, string>();
+  for (const mailbox of mailboxes) {
+    const address = mailbox.username.trim().toLowerCase();
+    if (address) wanted.set(address, mailbox.username);
+  }
+  if (wanted.size === 0) return undefined;
+  const rows = database().prepare("SELECT key FROM settings_store WHERE key LIKE 'mailboxes.v1:%'").all() as unknown as { key: string }[];
+  for (const { key } of rows) {
+    const otherID = key.slice('mailboxes.v1:'.length);
+    if (otherID === userID) continue;
+    let doc: SettingsDocument;
+    try {
+      doc = parseDocument(readSealed(key));
+    } catch {
+      continue; // an unreadable document cannot be compared; the save still must not touch it
+    }
+    for (const mailbox of doc.mailboxes) {
+      const address = mailbox.username.trim().toLowerCase();
+      if (wanted.has(address)) return { address: wanted.get(address)!, ownerID: otherID };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Change one user's document atomically. Shared values are written only for
+ * the owner (or a legacy/test call with no user row); a member's change that
+ * touches them is refused rather than silently ignored.
+ */
+export function updateSettingsFor(userID: string, change: (doc: SettingsDocument) => void): SettingsDocument {
   const db = database();
   return transaction(db, () => {
-    const doc = parseDocument(readSealed(SETTINGS_ROW));
+    const shared = readShared();
+    const boxes = readMailboxDocument(userID);
+    const doc: SettingsDocument = {
+      values: { ...shared.values },
+      mailboxes: boxes.mailboxes.map((mailbox) => ({ ...mailbox })),
+      ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
+    };
     change(doc);
-    writeSealed(SETTINGS_ROW, JSON.stringify(doc));
+    const clash = mailboxClash(userID, doc.mailboxes);
+    if (clash) throw new MailboxConflictError(clash.address, clash.ownerID);
+    const role = roleOf(userID);
+    const valuesChanged = JSON.stringify(doc.values) !== JSON.stringify(shared.values);
+    if (valuesChanged && role === 'member') throw new SharedSettingsDenied();
+    if (valuesChanged) writeSealed(SHARED_ROW, JSON.stringify({ values: doc.values }));
+    writeSealed(mailboxRow(userID), JSON.stringify({
+      mailboxes: doc.mailboxes,
+      ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
+    }));
+    if (role !== 'member') {
+      // One release of rollback compatibility: the previous image reads this
+      // row, so it must contain the owner's data and never a member's.
+      writeSealed(SETTINGS_ROW, JSON.stringify({
+        values: doc.values,
+        mailboxes: doc.mailboxes,
+        ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
+      }));
+    }
     return doc;
   });
+}
+
+/** Change the owner's document; kept for CLI tools and tests. */
+export function updateSettings(change: (doc: SettingsDocument) => void): SettingsDocument {
+  return updateSettingsFor('owner', change);
 }
 
 export function newMailboxId(): string {
@@ -566,12 +709,17 @@ export function ownerClaimed(): boolean {
   return Boolean(row);
 }
 
+/** The mark a push subscription made in this session carries (see credentialMark in web-http). */
+function sessionCredential(token: string): string {
+  return createHash('sha256').update(`mailsift-credential:session:${token}`, 'utf8').digest('hex').slice(0, 24);
+}
+
 function newUserSession(db: DatabaseSync, userID: string): string {
   const token = randomBytes(32).toString('base64url');
   const now = Date.now();
   db.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').run(now);
-  db.prepare('INSERT INTO user_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .run(digest(token), userID, now, now + ADMIN_SESSION_TTL_MS);
+  db.prepare('INSERT INTO user_sessions (token_hash, user_id, credential, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
+    .run(digest(token), userID, sessionCredential(token), now, now + ADMIN_SESSION_TTL_MS);
   return token;
 }
 
@@ -641,8 +789,21 @@ export function startUserSession(userID: string): string {
   return newUserSession(database(), userID);
 }
 
-export function endUserSession(token: string): void {
-  if (token) database().prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(digest(token));
+/** End this session and return the push credential it carried, so its subscriptions can go too. */
+export function endUserSession(token: string): string | undefined {
+  if (!token) return undefined;
+  const db = database();
+  const row = db.prepare('SELECT credential FROM user_sessions WHERE token_hash = ?').get(digest(token)) as
+    { credential: string } | undefined;
+  db.prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(digest(token));
+  return row?.credential || undefined;
+}
+
+/** The push credentials of every live session of a user. */
+export function userCredentialMarks(userID: string): string[] {
+  const rows = database().prepare(`SELECT credential FROM user_sessions WHERE user_id = ? AND expires_at > ? AND credential <> ''`)
+    .all(userID, Date.now()) as unknown as Array<{ credential: string }>;
+  return rows.map((row) => row.credential);
 }
 
 /** End every session of this user except the one that asked. */
@@ -684,7 +845,80 @@ export function createUser(username: string, password: string, role: UserRole = 
   const hashed = hashPassword(password);
   const id = randomUUID().replace(/-/g, '').slice(0, 16);
   const now = new Date().toISOString();
-  database().prepare(`INSERT INTO users (id, username, password_hash, role, disabled, created_at, changed_at)
-    VALUES (?, ?, ?, ?, 0, ?, ?)`).run(id, name, hashed, role, now, now);
+  const db = database();
+  transaction(db, () => {
+    db.prepare(`INSERT INTO users (id, username, password_hash, role, disabled, created_at, changed_at)
+      VALUES (?, ?, ?, ?, 0, ?, ?)`).run(id, name, hashed, role, now, now);
+    // A member is past the first-run wizard the moment the owner creates them.
+    writeSealed(mailboxRow(id), JSON.stringify({ mailboxes: [], setupCompletedAt: now }));
+  });
   return { id, username: name, role, disabled: false, createdAt: now };
+}
+
+// ---------------------------------------------------------------------------
+// User management (owner actions)
+// ---------------------------------------------------------------------------
+
+export function userByID(id: string): User | undefined {
+  const row = database().prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+  return row ? toUser(row) : undefined;
+}
+
+export function countUsers(): number {
+  return Number((database().prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n);
+}
+
+/** A cap that keeps the laptop's memory and IMAP connections honest. */
+export const MAX_USERS = 20;
+
+export function setUserDisabled(id: string, disabled: boolean): boolean {
+  const db = database();
+  const row = db.prepare('SELECT role FROM users WHERE id = ?').get(id) as { role: UserRole } | undefined;
+  if (!row || (row.role === 'owner' && disabled)) return false;
+  return transaction(db, () => {
+    const changed = db.prepare('UPDATE users SET disabled = ?, changed_at = ? WHERE id = ?')
+      .run(disabled ? 1 : 0, new Date().toISOString(), id);
+    if (disabled) db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(id);
+    return Number(changed.changes) > 0;
+  });
+}
+
+/** An owner-set password, for a member who lost theirs. Ends that user's sessions. */
+export function resetUserPassword(id: string, password: string): boolean {
+  if (passwordProblem(password)) return false;
+  const hashed = hashPassword(password);
+  const db = database();
+  return transaction(db, () => {
+    const changed = db.prepare('UPDATE users SET password_hash = ?, changed_at = ? WHERE id = ?')
+      .run(hashed, new Date().toISOString(), id);
+    if (!Number(changed.changes)) return false;
+    db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(id);
+    return true;
+  });
+}
+
+export function renameUser(id: string, username: string): boolean {
+  const name = normalizeUsername(username);
+  if (usernameProblem(name, id) !== undefined) return false;
+  const changed = database().prepare('UPDATE users SET username = ?, changed_at = ? WHERE id = ?')
+    .run(name, new Date().toISOString(), id);
+  return Number(changed.changes) > 0;
+}
+
+/** Delete a member: the row, its sessions, and its mailbox document. Never the owner. */
+export function deleteUser(id: string): User | undefined {
+  const db = database();
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+  if (!row || row.role === 'owner') return undefined;
+  transaction(db, () => {
+    db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM settings_store WHERE key = ?').run(mailboxRow(id));
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  });
+  return toUser(row);
+}
+
+/** The mailboxes of a user, for cleanup before the row goes. */
+export function mailboxAddresses(userID: string): string[] {
+  return readMailboxDocument(userID).mailboxes.map((mailbox) => mailbox.username);
 }

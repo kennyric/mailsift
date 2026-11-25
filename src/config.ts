@@ -217,10 +217,25 @@ function normalizeAccount(parsed: ParsedAccountLine, index: number, varName: str
  * The mailboxes the settings page configured, once the server has loaded them.
  * Undefined until then, which is what tests and one-off tools see.
  */
-let settingsAccounts: Account[] | undefined;
+let settingsAccounts: Map<string, Account[]> | undefined;
 
-export function setSettingsAccounts(accounts: Account[] | undefined): void {
-  settingsAccounts = accounts;
+/** Set one user's accounts (the owner by default, which is what tests use). */
+export function setSettingsAccounts(accounts: Account[] | undefined, userID = 'owner'): void {
+  if (accounts === undefined) {
+    settingsAccounts = undefined;
+    return;
+  }
+  if (!settingsAccounts) settingsAccounts = new Map();
+  settingsAccounts.set(userID, accounts);
+}
+
+export function setSettingsAccountsFor(userID: string, accounts: Account[]): void {
+  if (!settingsAccounts) settingsAccounts = new Map();
+  settingsAccounts.set(userID, accounts);
+}
+
+export function accountsFor(userID: string): Account[] | undefined {
+  return settingsAccounts?.get(userID);
 }
 
 export function usingSettingsAccounts(): boolean {
@@ -289,13 +304,23 @@ export function mailboxAccount(m: MailboxFields, options: { requirePassword?: bo
   };
 }
 
+/** One user's accounts and the shared rules. */
+export function loadConfigFor(userID: string, source: NodeJS.ProcessEnv = process.env): WatchConfig {
+  const accounts = settingsAccounts?.get(userID);
+  if (!accounts || accounts.length === 0) {
+    throw new ConfigError('No mailbox is configured yet. Add one under Settings → Mailboxes.');
+  }
+  return { accounts: accounts.map((account) => ({ ...account, folders: [...account.folders] })), rules: rulesFrom(source) };
+}
+
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): WatchConfig {
   const numbered: Array<{ index: number; varName: string; raw: string }> = [];
   if (settingsAccounts) {
-    if (settingsAccounts.length === 0) {
+    const accounts = settingsAccounts.get('owner') ?? [...settingsAccounts.values()][0];
+    if (!accounts || accounts.length === 0) {
       throw new ConfigError('No mailbox is configured yet. Add one under Settings → Mailboxes.');
     }
-    return { accounts: settingsAccounts.map((account) => ({ ...account, folders: [...account.folders] })), rules: rulesFrom(source) };
+    return { accounts: accounts.map((account) => ({ ...account, folders: [...account.folders] })), rules: rulesFrom(source) };
   }
   for (const [key, value] of Object.entries(source)) {
     const match = /^MAIL_ACCOUNT_(\d+)$/.exec(key);

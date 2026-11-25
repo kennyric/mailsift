@@ -24,7 +24,7 @@ import { scopeAllowsSending } from './smtp.js';
 import {
   ACCESS_TOKEN_KEYS, checkField, crossFieldProblems, FIELD_BY_KEY, SECRET_KEYS, words, type FieldProblem,
 } from './settings-catalog.js';
-import { renderClaimPage, renderSettingsPage } from './settings-page.js';
+import { renderClaimPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
 import { sendTestNotification } from './services/sink.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
 import { aiGatewayHeaders } from './services/decider.js';
@@ -32,13 +32,18 @@ import {
   bootId, restartState, requestRestart, serverMode, supervised, type RestartOutcome,
 } from './services/runtime-control.js';
 import {
-  applySettings, differsFromBoot, isOAuthProvider, mailboxReadiness,
+  applySettings, differsFromBootAll, isOAuthProvider, mailboxReadiness,
 } from './services/settings-runtime.js';
 import {
-  ADMIN_PASSWORD_MIN, changeUserPassword, claimOwner, endOtherUserSessions, newAccessToken, newMailboxId, ownerClaimed,
-  passwordProblem, readSettings, savePendingSignIn, sessionUser, startUserSession, takePendingSignIn, updateSettings,
-  usernameShapeProblem, type MailboxSettings, type PendingSignIn, type SettingsDocument, type User,
+  ADMIN_PASSWORD_MIN, changeUserPassword, claimOwner, countUsers, createUser, deleteUser, endOtherUserSessions, listUsers,
+  MailboxConflictError, MAX_USERS, newAccessToken, newMailboxId, ownerClaimed, passwordProblem, readSettingsFor,
+  renameUser, resetUserPassword, savePendingSignIn, sessionUser, setUserDisabled, SharedSettingsDenied,
+  startUserSession, takePendingSignIn, updateSettingsFor, userByID, usernameProblem, usernameShapeProblem,
+  type MailboxSettings, type PendingSignIn, type SettingsDocument, type User,
 } from './services/settings-store.js';
+import { removeStore, storePathFor, StateStore } from './services/state.js';
+import { releaseLiveHub } from './web-live.js';
+import { forgetLive, forgetSends } from './web-actions.js';
 import { hostPort, requestChannel } from './web-access.js';
 import { json, rateWindow, readCookie, readJson, type WebResponse } from './web-http.js';
 import type { Language } from './web-strings.js';
@@ -145,8 +150,9 @@ function safeMailbox(mailbox: MailboxSettings, authorized: ReadonlySet<string>):
   };
 }
 
-function statePayload(req: IncomingMessage, doc: SettingsDocument): Record<string, unknown> {
+function statePayload(req: IncomingMessage, doc: SettingsDocument, user?: User): Record<string, unknown> {
   const authorized = authorizedUsernames();
+  const owner = !user || user.role === 'owner';
   const values: Record<string, string> = {};
   const secrets: Record<string, boolean> = {};
   for (const [key, value] of Object.entries(doc.values)) {
@@ -161,12 +167,15 @@ function statePayload(req: IncomingMessage, doc: SettingsDocument): Record<strin
     supervised: supervised(),
     values,
     secrets,
+    readOnlyShared: !owner,
+    user: user ? { username: user.username, role: user.role } : undefined,
     mailboxes: doc.mailboxes.map((mailbox) => safeMailbox(mailbox, authorized)),
-    tokens: { read: Boolean(doc.values['MCP_TOKEN']), write: Boolean(doc.values['MCP_WRITE_TOKEN']) },
-    oauthApps: {
-      gmail: Boolean(doc.values['GMAIL_CLIENT_ID']),
-      outlook: Boolean(doc.values['OUTLOOK_CLIENT_ID']),
-    },
+    tokens: owner
+      ? { read: Boolean(doc.values['MCP_TOKEN']), write: Boolean(doc.values['MCP_WRITE_TOKEN']) }
+      : { read: false, write: false },
+    oauthApps: owner
+      ? { gmail: Boolean(doc.values['GMAIL_CLIENT_ID']), outlook: Boolean(doc.values['OUTLOOK_CLIENT_ID']) }
+      : { gmail: false, outlook: false },
     channel: requestChannel(req),
     timeZone: process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
@@ -183,13 +192,20 @@ type Applied = 'none' | RestartOutcome;
  * so they are applied in place; afterwards a restart applies them, and only
  * when what the service runs on actually changed.
  */
+function restartForUsers(reason: string): Applied {
+  const authorized = authorizedUsernames();
+  if (!differsFromBootAll(authorized)) return restartState().pending ? 'scheduled' : 'none';
+  return requestRestart(reason);
+}
+
 function apply(doc: SettingsDocument, reason: string): Applied {
   const authorized = authorizedUsernames();
   if (serverMode() === 'setup') {
     applySettings(doc, authorized);
     return 'none';
   }
-  if (!differsFromBoot(doc, authorized)) return restartState().pending ? 'scheduled' : 'none';
+  // Every enabled user's mailboxes are part of what a restart would change.
+  if (!differsFromBootAll(authorized)) return restartState().pending ? 'scheduled' : 'none';
   return requestRestart(reason);
 }
 
@@ -354,7 +370,7 @@ function returnOrigin(req: IncomingMessage): string {
 
 async function finishSignIn(pending: PendingSignIn, code: string, lang: Language): Promise<{ ok: true; applied: Applied } | { ok: false; message: string }> {
   const zh = lang === 'zh-CN';
-  const doc = readSettings();
+  const doc = readSettingsFor('owner');
   const mailbox = doc.mailboxes.find((m) => m.id === pending.mailboxId);
   const auth = mailbox ? oauthKind(mailbox.provider) : undefined;
   if (!mailbox || !auth || mailbox.username !== pending.username) {
@@ -372,7 +388,7 @@ async function finishSignIn(pending: PendingSignIn, code: string, lang: Language
     const detail = error instanceof Error ? error.message.slice(0, 240) : '';
     return { ok: false, message: (zh ? '换取授权令牌失败：' : 'The provider did not hand over a token: ') + detail };
   }
-  return { ok: true, applied: apply(readSettings(), 'a mailbox was authorized') };
+  return { ok: true, applied: apply(readSettingsFor('owner'), 'a mailbox was authorized') };
 }
 
 function callbackParams(raw: string): URLSearchParams | undefined {
@@ -453,7 +469,7 @@ async function testModel(values: Record<string, string>, lang: Language): Promis
 // Routes
 // ---------------------------------------------------------------------------
 
-const PAGES = new Set(['/setup', '/settings']);
+const PAGES = new Set(['/setup', '/settings', '/users']);
 
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
@@ -472,11 +488,15 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   if (isPage) {
     if (!ownerClaimed()) return htmlPage(renderClaimPage(lang, ctx.nonce, ctx.version), ctx.nonce);
     if (!ctx.user) return redirect(`/signin?next=${encodeURIComponent(path + url.search)}`);
-    const doc = readSettings();
+    if (path === '/users') {
+      if (ctx.user.role !== 'owner') return redirect('/settings');
+      return htmlPage(renderUsersPage(lang, ctx.nonce, ctx.version, listUsers(), MAX_USERS, ctx.user.id), ctx.nonce);
+    }
+    const doc = readSettingsFor(ctx.user.id);
     if (path === '/settings' && !doc.setupCompletedAt) return redirect('/setup');
     if (path === '/setup' && doc.setupCompletedAt) return redirect('/settings');
     return htmlPage(renderSettingsPage(
-      lang, ctx.nonce, ctx.version, doc.setupCompletedAt ? 'settings' : 'setup', statePayload(req, doc), bootId(),
+      lang, ctx.nonce, ctx.version, doc.setupCompletedAt ? 'settings' : 'setup', statePayload(req, doc, ctx.user), bootId(),
     ), ctx.nonce);
   }
 
@@ -504,7 +524,26 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   if (!ctx.user) return fail(401, 'admin_required', zh ? '请先登录。' : 'Sign in first.');
 
   if (path === '/api/admin/state' && req.method === 'GET') {
-    return ok(statePayload(req, readSettings()));
+    return ok(statePayload(req, readSettingsFor(ctx.user.id), ctx.user));
+  }
+
+  if (path === '/api/admin/users' && req.method === 'GET') {
+    if (ctx.user.role !== 'owner') return fail(403, 'owner_required', zh ? '只有管理员可以管理用户。' : 'Only the owner can manage users.');
+    return ok({ users: listUsers(), max: MAX_USERS });
+  }
+
+  // Shared settings, the model/notification tests, MCP tokens, OAuth apps and
+  // user management belong to the owner in v1.
+  const ownerOnly = path === '/api/admin/settings'
+    || path === '/api/admin/users'
+    || path.startsWith('/api/admin/users/')
+    || path === '/api/admin/test/notifications'
+    || path === '/api/admin/test/model'
+    || path === '/api/admin/tokens/rotate'
+    || path === '/api/admin/oauth/start'
+    || path === '/api/admin/oauth/finish';
+  if (ctx.user.role !== 'owner' && ownerOnly) {
+    return fail(403, 'owner_required', zh ? '只有管理员可以修改这些设置。' : 'Only the owner can change these settings.');
   }
 
   if (req.method !== 'POST') return fail(404, 'not_found', 'not found');
@@ -517,7 +556,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       let errors: Record<string, string> = {};
       let doc: SettingsDocument;
       try {
-        doc = updateSettings((d) => {
+        doc = updateSettingsFor(ctx.user.id, (d) => {
           const merged = mergeValues(d.values, body['values'], lang);
           errors = merged.errors;
           if (Object.keys(errors).length) throw new NotSaved();
@@ -528,7 +567,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         return fail(400, 'invalid', zh ? '有设置需要修改。' : 'Some settings need attention.', { errors });
       }
       const applied = apply(doc, 'settings were saved');
-      return ok({ saved: true, applied, state: statePayload(req, doc) });
+      return ok({ saved: true, applied, state: statePayload(req, doc, ctx.user) });
     }
 
     case '/api/admin/mailboxes/save': {
@@ -537,7 +576,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       let saved: MailboxSettings | undefined;
       let doc: SettingsDocument;
       try {
-        doc = updateSettings((d) => {
+        doc = updateSettingsFor(ctx.user.id, (d) => {
           const existing = id ? d.mailboxes.find((m) => m.id === id) : undefined;
           if (id && !existing) problem = zh ? '找不到这个邮箱。' : 'That mailbox no longer exists.';
           const mailbox = mailboxFrom(body['mailbox'], existing);
@@ -549,17 +588,22 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
           saved = mailbox;
         });
       } catch (error) {
+        if (error instanceof MailboxConflictError) {
+          return fail(409, 'mailbox_taken', zh
+            ? `${error.address} 已由另一个账号监控。`
+            : `${error.address} is already monitored by another account.`);
+        }
         if (!(error instanceof NotSaved)) throw error;
         return fail(400, 'invalid_mailbox', problem ?? 'invalid');
       }
       const applied = apply(doc, 'a mailbox was saved');
-      return ok({ saved: true, applied, mailbox: safeMailbox(saved!, authorizedUsernames()), state: statePayload(req, doc) });
+      return ok({ saved: true, applied, mailbox: safeMailbox(saved!, authorizedUsernames()), state: statePayload(req, doc, ctx.user) });
     }
 
     case '/api/admin/mailboxes/delete': {
       const id = text(body['id'], 40);
       let removed: MailboxSettings | undefined;
-      const doc = updateSettings((d) => {
+      const doc = updateSettingsFor(ctx.user.id, (d) => {
         removed = d.mailboxes.find((m) => m.id === id);
         d.mailboxes = d.mailboxes.filter((m) => m.id !== id);
       });
@@ -570,12 +614,12 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         await new TokenStore().remove(gone.username).catch(() => undefined);
       }
       const applied = apply(doc, 'a mailbox was removed');
-      return ok({ deleted: true, applied, state: statePayload(req, doc) });
+      return ok({ deleted: true, applied, state: statePayload(req, doc, ctx.user) });
     }
 
     case '/api/admin/mailboxes/test': {
       if (!allowTest(ctx.client)) return fail(429, 'rate_limited', zh ? '测试太频繁，请稍后再试。' : 'Too many tests; wait a moment.');
-      const current = readSettings();
+      const current = readSettingsFor(ctx.user.id);
       const id = text(body['id'], 40);
       const existing = id ? current.mailboxes.find((m) => m.id === id) : undefined;
       if (id && !existing) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox no longer exists.');
@@ -598,7 +642,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     }
 
     case '/api/admin/oauth/start': {
-      const doc = readSettings();
+      const doc = readSettingsFor(ctx.user.id);
       const mailbox = doc.mailboxes.find((m) => m.id === text(body['id'], 40));
       const auth = mailbox ? oauthKind(mailbox.provider) : undefined;
       if (!mailbox || !auth) return fail(400, 'no_sign_in', zh ? '这个邮箱不使用 OAuth 登录。' : 'This mailbox does not sign in with OAuth.');
@@ -651,12 +695,12 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       if (!code) return fail(400, 'no_code', zh ? '地址里没有授权码。' : 'That address carries no authorization code.');
       const result = await finishSignIn(pending, code, lang);
       if (!result.ok) return fail(400, 'exchange_failed', result.message);
-      return ok({ authorized: true, applied: result.applied, mailbox: pending.mailboxId, state: statePayload(req, readSettings()) });
+      return ok({ authorized: true, applied: result.applied, mailbox: pending.mailboxId, state: statePayload(req, readSettingsFor(ctx.user.id), ctx.user) });
     }
 
     case '/api/admin/test/notifications': {
       if (!allowTest(ctx.client)) return fail(429, 'rate_limited', zh ? '测试太频繁，请稍后再试。' : 'Too many tests; wait a moment.');
-      const merged = mergeValues(readSettings().values, body['values'], lang);
+      const merged = mergeValues(readSettingsFor(ctx.user.id).values, body['values'], lang);
       if (Object.keys(merged.errors).length) return fail(400, 'invalid', zh ? '有设置需要修改。' : 'Some settings need attention.', { errors: merged.errors });
       try {
         const delivered = await sendTestNotification(merged.values, lang);
@@ -668,7 +712,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
 
     case '/api/admin/test/model': {
       if (!allowTest(ctx.client)) return fail(429, 'rate_limited', zh ? '测试太频繁，请稍后再试。' : 'Too many tests; wait a moment.');
-      const merged = mergeValues(readSettings().values, body['values'], lang);
+      const merged = mergeValues(readSettingsFor(ctx.user.id).values, body['values'], lang);
       if (Object.keys(merged.errors).length) return fail(400, 'invalid', zh ? '有设置需要修改。' : 'Some settings need attention.', { errors: merged.errors });
       const result = await testModel(merged.values, lang);
       return result.ok ? ok({ ok: true, message: result.message }) : fail(400, 'model_failed', result.message);
@@ -679,10 +723,10 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       if (kind !== 'read' && kind !== 'write') return fail(400, 'bad_kind', 'kind must be read or write');
       const key = kind === 'read' ? 'MCP_TOKEN' : 'MCP_WRITE_TOKEN';
       const token = newAccessToken();
-      const doc = updateSettings((d) => { d.values[key] = token; });
+      const doc = updateSettingsFor(ctx.user.id, (d) => { d.values[key] = token; });
       log.info(`The MCP ${kind} token was replaced from the settings page.`);
       const applied = apply(doc, `the MCP ${kind} token was replaced`);
-      return ok({ token, applied, state: statePayload(req, doc) });
+      return ok({ token, applied, state: statePayload(req, doc, ctx.user) });
     }
 
     case '/api/admin/password': {
@@ -692,6 +736,9 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       if (!allowClaimPerClient(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试次数过多，请一分钟后再试。' : 'Too many attempts. Wait a minute.');
       if (!changeUserPassword(ctx.user.id, current, next)) return fail(401, 'not_accepted', zh ? '当前密码不正确。' : 'The current password is not right.');
       log.info('A password was changed; that user\'s other sessions were signed out.');
+      // Nothing subscribed before the change should keep receiving mail.
+      const own = new StateStore(storePathFor(ctx.user.id));
+      try { own.prunePushSubscriptions([]); } finally { own.close(); }
       // Every session of this user ended with the change, this one included; it gets a fresh one.
       return { ...ok({ changed: true }), cookie: adminCookie(req, startUserSession(ctx.user.id)) };
     }
@@ -701,15 +748,90 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       return ok({ ended });
     }
 
+    case '/api/admin/users/create': {
+      if (countUsers() >= MAX_USERS) {
+        return fail(409, 'too_many_users', zh ? `最多 ${MAX_USERS} 个用户。` : `At most ${MAX_USERS} users.`);
+      }
+      const username = typeof body['username'] === 'string' ? body['username'] as string : '';
+      const password = typeof body['password'] === 'string' ? body['password'] as string : '';
+      const problem = usernameProblem(username) ?? passwordProblem(password);
+      if (problem) {
+        return fail(400, problem === 'taken' ? 'taken' : 'invalid', problem === 'taken'
+          ? (zh ? '这个用户名已被使用。' : 'That username is already in use.')
+          : (zh ? `用户名需为 1–64 个字母、数字、点、下划线或连字符；密码至少 ${ADMIN_PASSWORD_MIN} 个字符。`
+            : `Use a 1–64 character username and at least ${ADMIN_PASSWORD_MIN} characters for the password.`));
+      }
+      const created = createUser(username, password);
+      if (!created) return fail(400, 'invalid', zh ? '无法创建这个用户。' : 'That user could not be created.');
+      log.info(`Created member ${created.username}.`);
+      return ok({ created: true, user: created, users: listUsers(), applied: restartForUsers('a user was created') });
+    }
+
+    case '/api/admin/users/disable': {
+      const id = text(body['id'], 40);
+      const target = userByID(id);
+      if (!target) return fail(404, 'not_found', zh ? '找不到这个用户。' : 'That user does not exist.');
+      if (target.role === 'owner') return fail(409, 'owner', zh ? '不能停用管理员。' : 'The owner cannot be disabled.');
+      const disabled = body['disabled'] !== false;
+      if (!setUserDisabled(id, disabled)) return fail(400, 'invalid', zh ? '无法修改这个用户。' : 'That user could not be changed.');
+      if (disabled) {
+        releaseLiveHub(id);
+        // Keep the mail history for a re-enable, but stop every device at once.
+        const own = new StateStore(storePathFor(id));
+        try { own.prunePushSubscriptions([]); } finally { own.close(); }
+      }
+      log.info(`${disabled ? 'Disabled' : 'Enabled'} member ${target.username}.`);
+      return ok({ saved: true, users: listUsers(), applied: restartForUsers('a user was changed') });
+    }
+
+    case '/api/admin/users/reset': {
+      const id = text(body['id'], 40);
+      const target = userByID(id);
+      if (!target) return fail(404, 'not_found', zh ? '找不到这个用户。' : 'That user does not exist.');
+      const password = typeof body['password'] === 'string' ? body['password'] as string : '';
+      if (passwordProblem(password)) {
+        return fail(400, 'too_short', zh ? `密码至少 ${ADMIN_PASSWORD_MIN} 个字符。` : `Use at least ${ADMIN_PASSWORD_MIN} characters.`);
+      }
+      if (!resetUserPassword(id, password)) return fail(400, 'invalid', zh ? '无法重置这个密码。' : 'That password could not be set.');
+      log.info(`Reset the password for ${target.username}.`);
+      return ok({ saved: true, users: listUsers() });
+    }
+
+    case '/api/admin/users/rename': {
+      const id = text(body['id'], 40);
+      const target = userByID(id);
+      if (!target) return fail(404, 'not_found', zh ? '找不到这个用户。' : 'That user does not exist.');
+      const username = typeof body['username'] === 'string' ? body['username'] as string : '';
+      if (!renameUser(id, username)) {
+        return fail(400, 'invalid', zh ? '这个用户名不可用。' : 'That username is not available.');
+      }
+      log.info(`Renamed ${target.username}.`);
+      return ok({ saved: true, users: listUsers() });
+    }
+
+    case '/api/admin/users/delete': {
+      const id = text(body['id'], 40);
+      const target = userByID(id);
+      if (!target) return fail(404, 'not_found', zh ? '找不到这个用户。' : 'That user does not exist.');
+      if (target.role === 'owner') return fail(409, 'owner', zh ? '不能删除管理员。' : 'The owner cannot be deleted.');
+      if (!deleteUser(id)) return fail(400, 'invalid', zh ? '无法删除这个用户。' : 'That user could not be deleted.');
+      releaseLiveHub(id);
+      removeStore(id);
+      forgetLive();
+      forgetSends();
+      log.info(`Deleted member ${target.username} and their mail state.`);
+      return ok({ deleted: true, users: listUsers(), applied: restartForUsers('a user was deleted') });
+    }
+
     case '/api/admin/setup/finish': {
-      const current = readSettings();
+      const current = readSettingsFor(ctx.user.id);
       const authorized = authorizedUsernames();
       if (!current.mailboxes.some((m) => mailboxReadiness(m, authorized) === 'ready')) {
         return fail(400, 'no_mailbox', zh ? '至少需要一个可以连接的邮箱。' : 'Add at least one mailbox that is ready to check.');
       }
-      const doc = updateSettings((d) => { d.setupCompletedAt ??= new Date().toISOString(); });
+      const doc = updateSettingsFor(ctx.user.id, (d) => { d.setupCompletedAt ??= new Date().toISOString(); });
       const applied = requestRestart('setup was finished');
-      return ok({ finished: true, applied, state: statePayload(req, doc) });
+      return ok({ finished: true, applied, state: statePayload(req, doc, ctx.user) });
     }
 
     default:

@@ -33,6 +33,23 @@ const EN: Dict = {
   'nav.setup': 'Setup',
   'nav.back': 'Back to mail',
   'nav.signout': 'Sign out',
+  'nav.users': 'Users',
+  'shared.readOnly': 'These shared settings are managed by the owner.',
+  'users.title': 'Users',
+  'users.lede': 'People who can sign in to this mailsift. Each has their own mailboxes; the AI, schedule and privacy settings are shared.',
+  'users.owner': 'Owner',
+  'users.member': 'Member',
+  'users.disabled': 'Disabled',
+  'users.rename': 'Rename',
+  'users.reset': 'Reset password',
+  'users.disable': 'Disable',
+  'users.enable': 'Enable',
+  'users.delete': 'Delete',
+  'users.create': 'Add a user',
+  'users.username': 'Username',
+  'users.password': 'Temporary password',
+  'users.add': 'Create',
+  'users.empty': 'No members yet.',
   'lang.face': '中文',
   'common.save': 'Save',
   'common.saving': 'Saving…',
@@ -194,6 +211,23 @@ const ZH: Dict = {
   'nav.setup': '初始设置',
   'nav.back': '返回邮件',
   'nav.signout': '退出登录',
+  'nav.users': '用户',
+  'shared.readOnly': '这些共享设置由管理员管理。',
+  'users.title': '用户',
+  'users.lede': '可以登录这个 mailsift 的人。每个人有自己的邮箱；AI、计划和隐私设置是共享的。',
+  'users.owner': '管理员',
+  'users.member': '成员',
+  'users.disabled': '已停用',
+  'users.rename': '改名',
+  'users.reset': '重置密码',
+  'users.disable': '停用',
+  'users.enable': '启用',
+  'users.delete': '删除',
+  'users.create': '添加用户',
+  'users.username': '用户名',
+  'users.password': '临时密码',
+  'users.add': '创建',
+  'users.empty': '还没有成员。',
   'lang.face': 'EN',
   'common.save': '保存',
   'common.saving': '正在保存…',
@@ -502,12 +536,14 @@ export function renderSettingsPage(
     locales: { en: locale('en'), 'zh-CN': locale('zh-CN') },
   };
   const title = mode === 'setup' ? d['nav.setup']! : d['nav.settings']!;
+  const asOwner = (state as { user?: { role?: string } } | undefined)?.user?.role === 'owner';
   return shell(lang, title, `
     <header class="st-header">
       <div class="st-header-inner">
         <a class="brand" href="${mode === 'setup' ? '/setup' : '/'}"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
         <span class="st-crumb" id="crumb">${escapeHtml(title)}</span>
         <div class="st-header-actions">
+          ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/users">${escapeHtml(d['nav.users']!)}</a>` : ''}
           ${mode === 'settings' ? `<a class="word-btn" href="/" id="back">${escapeHtml(d['nav.back']!)}</a>` : ''}
           <button type="button" class="word-btn" id="lang">${escapeHtml(d['lang.face']!)}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn" id="signout">${escapeHtml(d['nav.signout']!)}</button></form>
@@ -598,6 +634,11 @@ body{min-height:100vh}
 .st-mb-note{font-size:12.5px;margin-top:3px}
 .st-mb-note.ok{color:var(--ok)}.st-mb-note.bad{color:var(--critical-text)}
 .st-mb-actions{display:flex;align-items:center;gap:6px}
+.st-users-main{max-width:720px}
+.st-users{list-style:none;margin:0 0 16px;padding:0;border-top:1px solid var(--line)}
+.st-user{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.st-user-name{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.st-user-actions{display:flex;gap:6px;flex-wrap:wrap}
 .st-empty{color:var(--muted);font-size:14px;padding:16px 2px;border-bottom:1px solid var(--line);margin:0}
 .st-block{display:flex;flex-direction:column;gap:10px;padding:16px 0;border-top:1px solid var(--line)}
 .st-block:first-of-type{border-top:0;padding-top:0}
@@ -653,6 +694,111 @@ body{min-height:100vh}
  * never compiled. Built with DOM calls only, so no value from the server is
  * ever parsed as markup.
  */
+// ---------------------------------------------------------------------------
+// Users page (owner only)
+// ---------------------------------------------------------------------------
+
+export function renderUsersPage(
+  lang: Language, nonce: string, version: string,
+  users: Array<{ id: string; username: string; role: string; disabled: boolean }>, max: number, currentID: string,
+): string {
+  const d = dict(lang);
+  const s = (key: string): string => escapeHtml(d[key] ?? key);
+  const rows = users.map((user) => `
+    <li class="st-user" data-id="${escapeHtml(user.id)}" data-username="${escapeHtml(user.username)}">
+      <div class="st-user-name"><strong>${escapeHtml(user.username)}</strong>
+        <span class="st-pill">${escapeHtml(user.role === 'owner' ? d['users.owner']! : d['users.member']!)}</span>
+        ${user.disabled ? `<span class="st-pill off">${s('users.disabled')}</span>` : ''}
+        ${user.id === currentID ? '<span class="st-pill set">you</span>' : ''}</div>
+      <div class="st-user-actions">
+        <button type="button" class="st-btn" data-act="rename">${s('users.rename')}</button>
+        <button type="button" class="st-btn" data-act="reset">${s('users.reset')}</button>
+        ${user.role === 'owner' ? '' : `
+          <button type="button" class="st-btn" data-act="disable" data-disabled="${user.disabled ? '1' : '0'}">${user.disabled ? s('users.enable') : s('users.disable')}</button>
+          <button type="button" class="st-btn danger" data-act="delete">${s('users.delete')}</button>`}
+      </div>
+    </li>`).join('');
+  return shell(lang, d['users.title']!, `
+    <header class="st-header">
+      <div class="st-header-inner">
+        <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
+        <span class="st-crumb">${s('users.title')}</span>
+        <div class="st-header-actions">
+          <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
+          <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="st-main st-users-main">
+      <section class="st-section">
+        <h2>${s('users.title')}</h2>
+        <p class="st-lede">${s('users.lede')}</p>
+        <ul class="st-users">${rows || `<li class="st-empty">${s('users.empty')}</li>`}</ul>
+        <p class="st-help">${users.length} / ${max}</p>
+      </section>
+      <section class="st-section">
+        <h2>${s('users.create')}</h2>
+        <form class="st-form" id="create" novalidate>
+          <div class="st-field"><label for="new-username">${s('users.username')}</label>
+            <input id="new-username" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+          <div class="st-field"><label for="new-password">${s('users.password')}</label>
+            <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="${ADMIN_PASSWORD_MIN}" required></div>
+          <div class="st-foot"><span class="st-result" id="create-result"></span><button type="submit" class="st-btn primary">${s('users.add')}</button></div>
+        </form>
+      </section>
+    </main>
+    <script nonce="${nonce}">${storeLanguageScript()}
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      async function api(path, body) {
+        var response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
+        var data = await response.json().catch(function () { return {}; });
+        if (!response.ok) throw new Error(data.error || 'failed');
+        return data;
+      }
+      document.querySelectorAll('[data-act]').forEach(function (button) {
+        button.onclick = async function () {
+          var row = button.closest('[data-id]');
+          var id = row.dataset.id;
+          try {
+            var act = button.dataset.act;
+            if (act === 'rename') {
+              var name = prompt('New username', row.dataset.username);
+              if (!name) return;
+              await api('/api/admin/users/rename', { id: id, username: name });
+            } else if (act === 'reset') {
+              var password = prompt('New password (at least ${ADMIN_PASSWORD_MIN} characters)');
+              if (!password) return;
+              await api('/api/admin/users/reset', { id: id, password: password });
+            } else if (act === 'disable') {
+              await api('/api/admin/users/disable', { id: id, disabled: button.dataset.disabled !== '1' });
+            } else if (act === 'delete') {
+              if (!confirm('Delete this user and all their mail state? This cannot be undone.')) return;
+              await api('/api/admin/users/delete', { id: id });
+            }
+            location.reload();
+          } catch (error) { alert(error.message); }
+        };
+      });
+      $('create').onsubmit = async function (event) {
+        event.preventDefault();
+        var result = $('create-result');
+        result.textContent = '';
+        result.className = 'st-result';
+        try {
+          await api('/api/admin/users/create', { username: $('new-username').value, password: $('new-password').value });
+          location.reload();
+        } catch (error) {
+          result.textContent = error.message;
+          result.className = 'st-result bad';
+        }
+      };
+    })();</script>`, nonce);
+}
+
+
 const SETTINGS_SCRIPT = String.raw`
 (function () {
 'use strict';
@@ -1461,8 +1607,20 @@ function renderSettings() {
   });
   app.appendChild(nav);
   app.appendChild(main);
+  if (state.readOnlyShared) markSharedReadOnly();
   watchNav(nav);
   if (location.hash) { var target = document.getElementById(location.hash.slice(1)); if (target) target.scrollIntoView(); }
+}
+
+/** A member sees the shared sections, but cannot change them. */
+function markSharedReadOnly() {
+  ['ai', 'schedule', 'privacy', 'advanced', 'access'].forEach(function (id) {
+    var node = document.getElementById(id);
+    if (!node) return;
+    node.querySelectorAll('input,select,textarea,button').forEach(function (control) { control.disabled = true; });
+    var note = el('p', { class: 'st-lede', text: t('shared.readOnly') });
+    node.insertBefore(note, node.children[1] || null);
+  });
 }
 
 function watchNav(nav) {

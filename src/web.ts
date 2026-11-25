@@ -27,7 +27,7 @@ import { CATEGORIES } from './services/triage.js';
 import { HEARTBEAT_KEY, type PollStats } from './services/watcher.js';
 import { attachmentLimitBytes, MAX_ATTACHMENTS } from './smtp.js';
 import {
-  configuredAccounts, defaultBackend, forgetLive, liveRead, mailboxFailure, rememberWhereabouts, resolveTarget, routeActions,
+  configuredAccounts, currentUserID, defaultBackend, enterUser, forgetLive, liveRead, mailboxFailure, rememberWhereabouts, resolveTarget, routeActions,
   SIGNATURE_MAX_CHARS, signatureOf, webPushEnabled,
   type ActionContext, type MailTarget, type WebBackend,
 } from './web-actions.js';
@@ -39,11 +39,11 @@ import {
   SESSION_COOKIE, sessionOf, timedOut, tokenMatches, within, type Session, type WebResponse,
 } from './web-http.js';
 import { appleTouch180, favicon64, icon192, icon512, maskable512 } from './web-icons.js';
-import { liveHub } from './web-live.js';
+import { liveHubFor } from './web-live.js';
 import { DARK_BAR, LIGHT_BAR, styles } from './web-styles.js';
 import { isLanguage, LANGUAGES, t, type Language, type StringKey } from './web-strings.js';
 import { appPolicy, framePolicy, MAIL_FRAME, SERVICE_WORKER, SHELL_HEADER } from './web-worker.js';
-import { doneListDays, MAX_CONTACTS, type MailRow, type SentRow, type StateStore } from './services/state.js';
+import { doneListDays, MAX_CONTACTS, StateStore, storePathFor, type MailRow, type SentRow } from './services/state.js';
 import { endUserSession, ownerClaimed, signIn } from './services/settings-store.js';
 
 export { LANGUAGE_COOKIE, readCookie, SESSION_COOKIE, tokenMatches };
@@ -97,7 +97,7 @@ export function webVersion(): string {
  * the mail server and the model in the preview and in tests.
  */
 export interface WebOptions {
-  onRefresh?: (() => Promise<PollStats>) | undefined;
+  onRefresh?: ((userID: string) => Promise<PollStats>) | undefined;
   writeToken?: string | undefined;
   /** First-run setup is not finished: only the settings pages are served. */
   setupMode?: boolean | undefined;
@@ -1151,7 +1151,7 @@ async function handleRefresh(
     return { ...json(429, { error: 'refresh_rate_limited' }), headers: { 'retry-after': '60' } };
   }
   try {
-    const stats = await onRefresh();
+    const stats = await onRefresh(currentUserID());
     store.recordMcpAudit('web:refresh', client, true);
     return json(200, stats);
   } catch (error) {
@@ -1271,6 +1271,9 @@ async function route(
     return json(403, { error: 'not an embeddable resource', code: 'embedded' });
   }
 
+  const signedIn = options.adminAuth ? userSessionOf(req) : undefined;
+  if (signedIn) enterUser(signedIn.user.id);
+
   if (url.pathname === '/auth' && req.method === 'POST') {
     // Signing a browser in from another site's form would let that site pick
     // which credential the browser holds, a weaker one included. Said as
@@ -1315,7 +1318,12 @@ async function route(
   if (url.pathname === '/auth/signout' && req.method === 'POST') {
     if (crossSite(req)) return json(403, { error: 'cross-site request refused', code: 'crossSite' });
     const admin = options.adminAuth ? readCookie(req.headers.cookie, ADMIN_COOKIE_NAME) : '';
-    if (admin) endUserSession(admin);
+    let endedMark: string | undefined;
+    if (admin) endedMark = endUserSession(admin);
+    if (endedMark && signedIn) {
+      const own = new StateStore(storePathFor(signedIn.user.id));
+      try { own.deletePushSubscriptionsByCredential(endedMark); } finally { own.close(); }
+    }
     const cleared = {
       cookie: sessionCookie(req, '', 0), cacheControl: 'no-store',
       ...(options.adminAuth ? { extraCookies: [adminCookie(req, '', 0)] } : {}),
@@ -1330,7 +1338,6 @@ async function route(
   // A browser signed in with the administrator password may do everything a
   // write token may. Only the server consults the settings store; the
   // tests and tools that call this without one never open it.
-  const signedIn = options.adminAuth ? userSessionOf(req) : undefined;
   const admin = signedIn?.token ?? '';
   const session: Session = signedIn ? 'write' : sessionOf(req, token, writeToken);
 
@@ -1402,7 +1409,8 @@ async function route(
     // The page's live line: one event when the stored mail changes, one when
     // a poll finishes. A hub that is full says so and the page falls back to
     // asking on a timer.
-    if (!liveHub.hasRoom(client)) {
+    const hub = liveHubFor(currentUserID());
+    if (!hub.hasRoom(client)) {
       return { ...json(503, { error: 'no room for another live stream', code: 'liveFull' }), cacheControl: 'no-store', headers: { 'retry-after': '120' } };
     }
     return {
@@ -1410,7 +1418,7 @@ async function route(
       cacheControl: 'no-store, no-transform',
       headers: { 'x-accel-buffering': 'no' },
       stream: (channel) => {
-        if (liveHub.attach(channel, client)) return;
+        if (hub.attach(channel, client)) return;
         // Not taken on after all (the database would not open): say so and
         // end the response, so the page is not left holding a silent request.
         try { channel.write('event: full\ndata: {}\n\n'); } catch { /* already gone */ }
@@ -1427,7 +1435,7 @@ async function route(
   const context: ActionContext = {
     session, backend: backendOf(options), lang, client, decorate,
     mayMark: session === 'write' || writeToken === '',
-    credential: credentialMark(session === 'write' ? writeToken : token),
+    credential: signedIn ? credentialMark(`session:${signedIn.token}`) : credentialMark(session === 'write' ? writeToken : token),
   };
   const acted = await routeActions(req, url, store, context);
   if (acted) return acted;

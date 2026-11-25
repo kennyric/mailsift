@@ -27,8 +27,9 @@
  * `WebBackend`, so the preview and the tests can stand in for all three.
  */
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { IncomingMessage } from 'node:http';
-import { loadConfig, type Account } from './config.js';
+import { accountsFor, loadConfig, usingSettingsAccounts, type Account } from './config.js';
 import { MailboxUnreachableError } from './imap/connection.js';
 import { outgoingRecord, sentMailEnabled } from './imap/sent.js';
 import {
@@ -45,7 +46,8 @@ import {
   askMail, AssistantError, assistantConfigured, draftReply, type AskAnswer, type DraftInput,
 } from './services/assistant.js';
 import { sendTestPush, vapidKeys } from './services/push-dispatcher.js';
-import { StateStore, type MailRow } from './services/state.js';
+import { StateStore, storePathFor, type MailRow } from './services/state.js';
+import { listUsers } from './services/settings-store.js';
 import { isPushEndpoint, type PushSendResult } from './services/webpush.js';
 import {
   addressed, attachmentCharset, attachmentContentType, attachmentFilename, attachmentLimitBytes, describeBytes,
@@ -123,14 +125,14 @@ export const defaultBackend: WebBackend = {
   // On a handle of its own: a slow push service can outlast the request, and
   // what it finally says (delivered, or gone) still has to be written down.
   testPush: async (_store, endpoint) => {
-    const own = new StateStore();
+    const own = new StateStore(storePathFor(currentUserID()));
     try {
       return await sendTestPush(own, endpoint);
     } finally {
       own.close();
     }
   },
-  openStore: () => new StateStore(),
+  openStore: () => new StateStore(storePathFor(currentUserID())),
   folders: (account) => mailboxFolders(account, { counts: true }),
   browse: browseFolder,
   search: searchMailbox,
@@ -142,7 +144,26 @@ export function webPushEnabled(): boolean {
   return (process.env.WEB_PUSH_ENABLED ?? 'true').toLowerCase() !== 'false';
 }
 
+/**
+ * The user whose request is being served. A web request sets this before any
+ * handler looks an address up; background jobs it starts inherit the same
+ * async context. Outside a request (CLI, tests) it falls back to the owner.
+ */
+const requestUser = new AsyncLocalStorage<string>();
+
+export function enterUser(userID: string): void {
+  requestUser.enterWith(userID);
+}
+
+export function currentUserID(): string {
+  return requestUser.getStore() ?? 'owner';
+}
+
 export function configuredAccounts(): Account[] {
+  const scoped = accountsFor(currentUserID());
+  if (scoped) return scoped;
+  // No settings store (tests, one-off tools): the numbered variables.
+  if (usingSettingsAccounts()) return [];
   try {
     return loadConfig().accounts;
   } catch {
@@ -195,8 +216,9 @@ export function forgetLive(key?: string): void {
     liveInFlight.clear();
     return;
   }
-  liveCache.delete(key);
-  liveInFlight.delete(key);
+  const scoped = `${currentUserID()}|${key}`;
+  liveCache.delete(scoped);
+  liveInFlight.delete(scoped);
 }
 
 /**
@@ -255,14 +277,17 @@ export function rememberWhereabouts(store: StateStore, row: MailRow, live: LiveM
 export async function liveMessage(
   row: MailRow, account: Account, backend: WebBackend, hint?: MessageHint,
 ): Promise<LiveMessage | undefined> {
-  if (!row.messageId) return liveCache.get(row.dedupKey)?.value;
-  return readOnce(row.dedupKey, account, row.messageId, hint ?? (row.folder ? { folder: row.folder } : undefined), backend);
+  // Namespaced by user: two people can have the same newsletter, and the same key.
+  const key = `${currentUserID()}|${row.dedupKey}`;
+  if (!row.messageId) return liveCache.get(key)?.value;
+  return readOnce(key, account, row.messageId, hint ?? (row.folder ? { folder: row.folder } : undefined), backend);
 }
 
 /** A message named by a key or a handle, as the mailbox has it now; from memory when it was read moments ago. */
 export async function liveRead(target: MailTarget, backend: WebBackend): Promise<LiveMessage | undefined> {
-  if (!target.messageId && !target.handle) return liveCache.get(target.cacheKey)?.value;
-  return readOnce(target.cacheKey, target.account, target.messageId, target.hint, backend);
+  const key = `${currentUserID()}|${target.cacheKey}`;
+  if (!target.messageId && !target.handle) return liveCache.get(key)?.value;
+  return readOnce(key, target.account, target.messageId, target.hint, backend);
 }
 
 function readOnce(
@@ -1319,9 +1344,11 @@ export function forgetSends(): void {
   allowSend = rateWindow(10);
 }
 
+const sendKey = (id: string): string => `${currentUserID()}|${id}`;
+
 /** What became, or is becoming, of a letter already asked for under this name; undefined when there was none. */
 export function earlierSend(id: string, now = Date.now()): Promise<WebResponse> | undefined {
-  const job = sendJobs.get(id);
+  const job = sendJobs.get(sendKey(id));
   return job && now - job.at <= SEND_MEMORY_MS ? job.outcome : undefined;
 }
 
@@ -1333,7 +1360,7 @@ export function earlierSend(id: string, now = Date.now()): Promise<WebResponse> 
  * still being put together or handed over.
  */
 export function awaitEarlierSend(id: string): Promise<WebResponse | TimedOut> | undefined {
-  const job = sendJobs.get(id);
+  const job = sendJobs.get(sendKey(id));
   if (!job || Date.now() - job.at > SEND_MEMORY_MS) return undefined;
   const asked = Date.now() + SEND_TIMEOUT_MS;
   return withinUntil(job.outcome, () => Math.max(asked, job.pace.until));
@@ -1344,7 +1371,11 @@ function rememberSend(id: string, outcome: Promise<WebResponse>, pace: SendPace,
     if (now - job.at > SEND_MEMORY_MS || sendJobs.size >= SEND_MEMORY_MAX) sendJobs.delete(known);
     else break;
   }
-  sendJobs.set(id, { at: now, outcome, pace });
+  sendJobs.set(sendKey(id), { at: now, outcome, pace });
+}
+
+function forgetSend(id: string): void {
+  sendJobs.delete(sendKey(id));
 }
 
 const SEND_UNCERTAIN = (): WebResponse =>
@@ -1686,7 +1717,7 @@ export async function sendMessage(
           ...audit, messageId: about, success: false, error: 'forward_attachment',
         })));
         // Nothing was sent: asking again is a new attempt.
-        if (sendId) sendJobs.delete(sendId);
+        if (sendId) forgetSend(sendId);
         return gathered.refused;
       }
       mail.attachments = [...(mail.attachments ?? []), ...gathered.files];
@@ -1705,7 +1736,7 @@ export async function sendMessage(
       // released: pressing send again is a new send. Where the line dropped
       // after the message was handed over, the page has told the reader to
       // look in Sent first, and whether to send again is theirs to decide.
-      if (sendId) sendJobs.delete(sendId);
+      if (sendId) forgetSend(sendId);
       return sendFailure(error);
     }
 
@@ -1927,6 +1958,17 @@ async function handlePush(path: string, req: IncomingMessage, store: StateStore,
     });
     store.recordMcpAudit('web:push-subscribe', ctx.client, saved);
     if (!saved) return json(409, { error: 'too many devices are subscribed; remove one first', code: 'pushFull' });
+    // One browser is one endpoint. After an account switch it must not keep
+    // receiving the previous user's mail.
+    for (const user of listUsers()) {
+      if (user.id === currentUserID()) continue;
+      try {
+        const other = new StateStore(storePathFor(user.id));
+        try { other.deletePushSubscription(endpoint); } finally { other.close(); }
+      } catch {
+        // A user whose database cannot be opened has nothing to hand over.
+      }
+    }
     return json(200, { subscribed: true });
   }
   if (path === '/api/push/unsubscribe') {
