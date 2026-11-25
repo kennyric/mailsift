@@ -667,6 +667,9 @@ const en = {
   'action.from': 'With {name}',
   'action.dueTask': 'due {at}',
   'action.addTask': 'Add task',
+  'action.taskSuggestion': 'Drafting the task from the email…',
+  'action.taskSuggested': 'Drafted from the email. Edit anything before adding it.',
+  'action.taskFallback': 'AI was unavailable; the title is the email subject.',
 
   // ---- The palette and the keyboard ----
   'palette.title': 'Command palette',
@@ -1373,6 +1376,9 @@ const zhCN: Record<StringKey, string> = {
   'action.from': '与 {name}',
   'action.dueTask': '截止 {at}',
   'action.addTask': '添加任务',
+  'action.taskSuggestion': '正在根据邮件起草任务…',
+  'action.taskSuggested': '已根据邮件起草，可在添加前修改。',
+  'action.taskFallback': 'AI 暂不可用，标题使用邮件主题。',
 
   'palette.title': '命令面板',
   'palette.hint': '搜索、跳转或提问…',

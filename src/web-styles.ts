@@ -494,6 +494,8 @@ body.offline #refresh,body.offline .load-more{opacity:.4;pointer-events:none}
 .action-form input{min-width:0;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--fill);color:var(--text);font:inherit;font-size:15px}
 .action-form input[name=title],.action-form input[name=notes]{grid-column:1/-1}
 .action-form .primary-action{grid-column:2;align-self:end;min-height:42px}
+.action-form .action-suggest{grid-column:1/-1;margin:0;font-size:12px;line-height:1.4;color:var(--muted)}
+.action-form .action-suggest.ok{color:var(--ok)}
 .action-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
 .action-row>.mark,.action-row>.mark.later{grid-area:auto;margin-top:5px}
 .action-row>input[type=checkbox]{width:18px;height:18px;margin:5px 0 0;accent-color:var(--accent)}

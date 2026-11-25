@@ -43,7 +43,7 @@ import {
   type FirstOf, type LiveHandle, type LivePage, type MailboxFolder, type SearchPage,
 } from './imap/mailbox.js';
 import {
-  askMail, AssistantError, assistantConfigured, draftReply, type AskAnswer, type DraftInput,
+  askMail, AssistantError, assistantConfigured, draftReply, suggestTask, type AskAnswer, type DraftInput,
 } from './services/assistant.js';
 import { llmConfigForUser, withLlmConfig } from './services/llm-config.js';
 import { sendTestPush, vapidKeys } from './services/push-dispatcher.js';
@@ -2000,6 +2000,38 @@ function actionCentre(store: StateStore): WebResponse {
   });
 }
 
+/** Ask the model to prefill a task from one stored message; fall back to its own fields. */
+async function handleTaskSuggest(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
+  const body = await readJson(req, 4096);
+  const key = text(body?.['key'], 500).trim();
+  const row = key ? store.getMail(key) : undefined;
+  if (!row) return json(404, { error: 'mail record not found', code: 'notFound' });
+  const fallback = {
+    title: (row.subject || row.summary || '').slice(0, 120),
+    notes: (row.summary || '').slice(0, 500),
+    dueAt: '',
+  };
+  if (!assistantConfigured()) return json(200, { suggestion: fallback, ai: false });
+  try {
+    const suggestion = await withLlmConfig(llmConfigForUser(currentUserID()), () => suggestTask({
+      subject: row.subject ?? '',
+      from: row.senderName ? `${row.senderName} <${row.sender ?? ''}>` : row.sender ?? '',
+      ...(row.mailDate ? { date: row.mailDate } : {}),
+      text: [row.summary, row.snippet].filter(Boolean).join('\n\n'),
+      lang: ctx.lang,
+    }));
+    store.recordMcpAudit('web:task-suggest', ctx.client, true, row.dedupKey);
+    return json(200, { suggestion, ai: true });
+  } catch (error) {
+    store.recordMcpAudit('web:task-suggest', ctx.client, false, row.dedupKey);
+    return json(200, {
+      suggestion: fallback,
+      ai: false,
+      ...(error instanceof AssistantError ? { code: `assistant_${error.code}` } : {}),
+    });
+  }
+}
+
 async function handleTaskCreate(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
   if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
   const body = await readJson(req, 16 * 1024);
@@ -2069,6 +2101,7 @@ export async function routeActions(
       if (path === '/api/reply' && req.method === 'GET') return handleReply(url.searchParams, store, ctx);
       if (path === '/api/forward' && req.method === 'GET') return handleForward(url.searchParams, store, ctx);
       if (req.method !== 'POST') return undefined;
+      if (path === '/api/tasks/suggest') return handleTaskSuggest(req, store, ctx);
       if (path === '/api/tasks/create') return handleTaskCreate(req, store, ctx);
       if (path === '/api/tasks/update') return handleTaskUpdate(req, store, ctx);
       if (path === '/api/tasks/delete') return handleTaskDelete(req, store, ctx);

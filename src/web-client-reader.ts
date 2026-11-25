@@ -1122,6 +1122,7 @@ function fillBar(bar, row, wide) {
   // Done and later are the queue's, so only a stored message has them; one listed live answers to the rest.
   const markable = !row.live || row.stored;
   if (markable) bar.appendChild(barButton('i-check', t(row.handledAt ? 'act.undone' : 'act.done'), () => complete(queueKey(row), null, Boolean(row.handledAt)), 'primary' + (row.handledAt ? ' on' : '')));
+  if (markable && row.dedupKey) bar.appendChild(barButton('i-task', t('action.addTask'), () => openTaskFor(row), 'icon-only'));
   bar.appendChild(barButton('i-reply', t('act.reply'), () => startReply(key, 'reply'), markable ? '' : 'primary'));
   if (wide) bar.appendChild(barButton('i-reply-all', t('act.replyAll'), () => startReply(key, 'replyAll'), 'icon-only'));
   // Filed in the archive already, it is not archived again.

@@ -1241,7 +1241,7 @@ export class StateStore {
       `SELECT lower(sender) AS sender, max(sender_name) AS name, COUNT(*) AS n, max(created_at) AS at,
               max(unsubscribe_url) AS unsub, max(category) AS category
        FROM seen WHERE created_at >= ? AND sender IS NOT NULL AND sender != ''
-         AND (unsubscribe_url IS NOT NULL OR category = 'Marketing')
+         AND in_spam = 0 AND (unsubscribe_url IS NOT NULL OR category = 'Marketing')
        GROUP BY lower(sender) HAVING COUNT(*) >= 2 OR max(unsubscribe_url) IS NOT NULL
        ORDER BY n DESC LIMIT 40`,
     ).all(since) as Array<Record<string, unknown>>).map((row) => ({
@@ -1280,7 +1280,10 @@ export class StateStore {
   deadlines(limit = 50): MailRow[] {
     return (this.db.prepare(
       `SELECT ${ROW_COLUMNS.join(', ')}, snippet FROM seen
-       WHERE handled_at IS NULL AND deadline IS NOT NULL AND deadline != ''
+       WHERE handled_at IS NULL AND in_spam = 0
+         AND importance IN ('warning', 'critical')
+         AND COALESCE(category, '') NOT IN ('Marketing', 'Social')
+         AND deadline IS NOT NULL AND deadline != ''
        ORDER BY created_at DESC LIMIT ?`,
     ).all(Math.max(1, Math.min(limit, 200))) as Array<Record<string, unknown>>).map(toRow);
   }

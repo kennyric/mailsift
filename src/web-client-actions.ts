@@ -10,6 +10,16 @@ const actionSheet = $('#action-sheet'), actionBody = $('#action-body'), actionOp
 const actionPeek = $('#action-peek'), actionBadge = $('#actions-count');
 let actionLoading = false;
 let taskDraft = null;
+let taskSuggestSeq = 0;
+
+function localDueInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+    + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
 
 /** Keep the badge and the strip under the title in step with the latest summary. */
 function updateActionPeek(summary) {
@@ -153,7 +163,26 @@ async function drawActionCenter() {
     const draft = taskDraft;
     taskDraft = null;
     if (draft) title.value = draft.title;
-    form.append(title, due, notes, add);
+    const suggestionNote = el('p', 'action-suggest', '');
+    form.append(title, due, notes, suggestionNote, add);
+    let touched = false;
+    for (const input of [title, notes, due]) input.addEventListener('input', () => { touched = true; });
+    if (draft && draft.key) {
+      const seq = ++taskSuggestSeq;
+      suggestionNote.className = 'action-suggest reading';
+      suggestionNote.textContent = t('action.taskSuggestion');
+      post('/api/tasks/suggest', { key: draft.key }).then((answer) => {
+        if (seq !== taskSuggestSeq) return;
+        const suggestion = answer.ok && answer.data ? answer.data.suggestion : null;
+        if (suggestion && !touched) {
+          if (suggestion.title) title.value = suggestion.title;
+          if (suggestion.notes) notes.value = suggestion.notes;
+          if (suggestion.dueAt) due.value = localDueInput(suggestion.dueAt);
+        }
+        suggestionNote.className = 'action-suggest' + (answer.data && answer.data.ai ? ' ok' : '');
+        suggestionNote.textContent = answer.data && answer.data.ai ? t('action.taskSuggested') : t('action.taskFallback');
+      });
+    }
     form.onsubmit = async (event) => {
       event.preventDefault();
       if (!title.value.trim()) { title.focus(); return; }

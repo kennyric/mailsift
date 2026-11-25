@@ -838,6 +838,7 @@ const ICONS: Record<string, string> = {
   bell: '<path d="M6 17v-6a6 6 0 1 1 12 0v6l1.5 1.5h-15z"/><path d="M10 21a2 2 0 0 0 4 0"/>',
   settings: '<path d="M4 7h9.5"/><path d="M18.5 7H20"/><circle cx="16" cy="7" r="2.5"/><path d="M4 17h1.5"/><path d="M10.5 17H20"/><circle cx="8" cy="17" r="2.5"/>',
   clip: '<path d="M15.5 7.5l-7 7a2 2 0 0 0 2.8 2.8l7.4-7.4a4 4 0 0 0-5.6-5.6L5.6 11.8a6 6 0 0 0 8.5 8.5l6-6"/>',
+  task: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 9h6M9 13h6M9 17h4"/>',
   shield: '<path d="M12 3.5l7 2.5v5.5c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="M9 12l2.2 2.2 4-4.2"/>',
   alert: '<path d="M12 4l9 15.5H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
