@@ -19,15 +19,21 @@
  * page that is deliberately not styled here.
  */
 
-/** Dark tokens adapted from QuotaPulse's neutral surfaces and indigo accent. */
-const DARK_PALETTE = '--bg:#0e1013;--surface:#16191e;--fill:#1e2229;--fill-2:#262b33;--line:#262b33;--line-strong:#3a414d;'
-  + '--text:#e9ebef;--text-2:#b4bac5;--muted:#8b95a3;--accent:#7b98f7;--on-accent:#0e1013;--accent-tint:#252c40;'
-  + '--critical:#ef6b6b;--critical-text:#ff8a8a;--critical-tint:rgba(239,107,107,.15);--warning:#e8a33d;--warning-text:#f3b85c;--warning-tint:rgba(232,163,61,.15);'
-  + '--backdrop:rgba(0,0,0,.5);--shadow-sheet:0 -8px 32px rgba(0,0,0,.5);--shadow-pop:0 8px 24px rgba(0,0,0,.45),0 0 0 1px var(--line);'
-  + '--seg-on:#363d49;--switch-off:#6b7482;--ok:#56c48d;--ok-tint:#1b3126;color-scheme:dark';
+/**
+ * Dark tokens, in the spirit of Gmail's and Apple Mail's dark modes: a
+ * charcoal page rather than pure black, cards one clear step above it, visible
+ * hairlines, a warmer text ramp and a brighter indigo that still reads as the
+ * interactive colour. Pure black made every surface collapse into the page.
+ */
+const DARK_PALETTE = '--bg:#101216;--surface:#191c22;--fill:#22262e;--fill-2:#2a2f38;--line:#2b313b;--line-strong:#434b58;'
+  + '--text:#eef1f6;--text-2:#c0c7d3;--muted:#909aa9;--accent:#8aa9ff;--on-accent:#0b0e14;--accent-tint:#25314b;--selected:#202633;'
+  + '--critical:#f07171;--critical-text:#ff9a9a;--critical-tint:rgba(240,113,113,.16);--warning:#f0aa45;--warning-text:#ffc16a;--warning-tint:rgba(240,170,69,.16);'
+  + '--backdrop:rgba(4,6,9,.62);--shadow-sheet:0 -8px 32px rgba(0,0,0,.55);--shadow-pop:0 10px 28px rgba(0,0,0,.5),0 0 0 1px var(--line);'
+  + '--card-shadow:0 1px 0 rgba(255,255,255,.03),0 2px 8px rgba(0,0,0,.22);'
+  + '--seg-on:#3b4452;--switch-off:#737e8d;--ok:#5fd39a;--ok-tint:#193528;color-scheme:dark';
 export const LIGHT_BAR = '#f4f5f7';
 /** The dark palette's --bg, used for the installed app's splash and status bar. */
-export const DARK_BAR = '#0e1013';
+export const DARK_BAR = '#101216';
 
 const SANS = '-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",Roboto,"Noto Sans CJK SC","Microsoft YaHei",sans-serif';
 const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace';
@@ -35,9 +41,10 @@ const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace';
 export function styles(): string {
   return `
 :root{color-scheme:light;--bg:#f4f5f7;--surface:#fff;--fill:#eceef2;--fill-2:#e3e5ea;--line:#e2e4e9;--line-strong:#c3c8d1;
---text:#15171b;--text-2:#4a505c;--muted:#5a616c;--accent:#3358d4;--on-accent:#fff;--accent-tint:#e1e5f4;
+--text:#15171b;--text-2:#4a505c;--muted:#5a616c;--accent:#3358d4;--on-accent:#fff;--accent-tint:#e1e5f4;--selected:#fff;
 --critical:#d64545;--critical-text:#b03030;--critical-tint:#fdecec;--warning:#b86b04;--warning-text:#8c5204;--warning-tint:#fef3e2;
 --backdrop:rgba(21,23,27,.32);--shadow-sheet:0 -8px 32px rgba(21,23,27,.12);--shadow-pop:0 8px 24px rgba(21,23,27,.10);
+--card-shadow:0 1px 2px rgba(21,23,27,.05);
 --seg-on:#fff;--switch-off:#868e9b;--ok:#1c7a4b;--ok-tint:#dcefe4}
 :root[data-theme=dark]{` + DARK_PALETTE + `}
 *{box-sizing:border-box}
@@ -330,7 +337,7 @@ dialog.sheet:focus{outline:none}
   .num:hover{color:var(--accent);text-decoration-color:var(--accent)}
   .token.clear:hover,.text-btn.quiet:hover,.login .lang:hover,.file-remove:hover{color:var(--text)}
 }
-.row.selected{background:var(--surface)}
+.row.selected{background:var(--selected)}
 .mark{grid-area:mark;width:8px;height:8px;margin:7px 0 0 4px;border-radius:50%;background:var(--critical)}
 .mark.warning{background:var(--warning)}.mark.info{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line-strong)}
 .who{grid-area:who;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit;text-decoration:none}
@@ -683,7 +690,7 @@ a.primary-action{display:inline-flex;align-items:center;justify-content:center;t
   /* Over the gutter too (see body.picking .controls::before), where the rows' boxes would otherwise show beside it. */
   body.picking .controls{top:calc(56px + env(safe-area-inset-top))}
   .fresh-pill{left:calc(max(24px,(100vw - 1440px)/2 + 24px) + 220px)}
-  .pane{display:flex;flex-direction:column;position:sticky;top:calc(68px + env(safe-area-inset-top));height:calc(100vh - 84px - env(safe-area-inset-top));overflow:hidden;border-radius:16px;background:var(--surface);box-shadow:0 0 0 1px var(--line)}
+  .pane{display:flex;flex-direction:column;position:sticky;top:calc(68px + env(safe-area-inset-top));height:calc(100vh - 84px - env(safe-area-inset-top));overflow:hidden;border-radius:16px;background:var(--surface);box-shadow:0 0 0 1px var(--line),var(--card-shadow)}
   .pane-bar{display:flex;flex:none;align-items:center;gap:2px;min-height:52px;padding:6px 10px;border-bottom:1px solid var(--line)}
   .pane-bar .bar-btn{min-height:36px;border-radius:8px;font-size:13px}
   .pane-bar .bar-btn.primary{flex:none;padding:0 14px}
@@ -750,7 +757,7 @@ background:color-mix(in srgb,var(--critical) 12%,var(--surface));color:var(--cri
 /* ---- Per-device list style presets (html[data-layout=...]) ---- */
 html[data-layout=cards] .day,html[data-layout=digest] .day{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:14px 16px 6px}
 html[data-layout=cards] .group,html[data-layout=digest] .group{padding:0 10px 6px;display:flex;flex-direction:column;gap:8px}
-html[data-layout=cards] .group .row,html[data-layout=digest] .group .row{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;row-gap:3px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+html[data-layout=cards] .group .row,html[data-layout=digest] .group .row{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;row-gap:3px;box-shadow:var(--card-shadow)}
 html[data-layout=cards] .group .row.selected,html[data-layout=digest] .group .row.selected{background:var(--accent-tint);border-color:var(--accent)}
 html[data-layout=cards] .group .row.picked,html[data-layout=digest] .group .row.picked{background:var(--accent-tint);border-color:var(--accent)}
 html[data-layout=cards] .detail h3,html[data-layout=digest] .detail h3,html[data-layout=crisp] .detail h3{font-size:21px;font-weight:700;letter-spacing:-.015em;line-height:1.25}

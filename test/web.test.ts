@@ -628,7 +628,7 @@ describe('colour theme', () => {
 
   it('uses the selected palette without following the system', async () => {
     const page = await shell();
-    expect(page).toContain(':root[data-theme=dark]{--bg:#0e1013');
+    expect(page).toContain(':root[data-theme=dark]{--bg:#101216');
     expect(page).toContain('--accent:#3358d4');
     expect(page).not.toContain('prefers-color-scheme');
   });
@@ -699,10 +699,10 @@ describe('language', () => {
 
   it('speaks English unless the browser asks for Chinese', async () => {
     const english = await shell();
-    expect(english).toContain('<html lang="en">');
+    expect(english).toContain('<html lang="en"');
     expect(english).toContain('>any level<');
     const chinese = await shell({ 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' });
-    expect(chinese).toContain('<html lang="zh-CN">');
+    expect(chinese).toContain('<html lang="zh-CN"');
     expect(chinese).toContain('>所有级别<');
     expect(chinese).not.toContain('>any level<');
   });
@@ -719,10 +719,10 @@ describe('language', () => {
 
   it('lets a choice made with the switch beat the browser', async () => {
     const chosen = await shell({ 'accept-language': 'en', cookie: `${LANGUAGE_COOKIE}=zh-CN` });
-    expect(chosen).toContain('<html lang="zh-CN">');
+    expect(chosen).toContain('<html lang="zh-CN"');
     // An unknown value is ignored rather than trusted.
     const junk = await shell({ 'accept-language': 'zh', cookie: `${LANGUAGE_COOKIE}=xx` });
-    expect(junk).toContain('<html lang="zh-CN">');
+    expect(junk).toContain('<html lang="zh-CN"');
   });
 
   it('words the sign-in form and its refusals too', async () => {
