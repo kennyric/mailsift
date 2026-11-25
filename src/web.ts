@@ -14,7 +14,7 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { loadConfig, type Account } from './config.js';
-import { ADMIN_COOKIE as ADMIN_COOKIE_NAME, adminCookie, adminSessionOf, routeAdmin, routeProviderRedirect } from './admin-api.js';
+import { ADMIN_COOKIE as ADMIN_COOKIE_NAME, adminCookie, routeAdmin, routeProviderRedirect, userSessionOf } from './admin-api.js';
 import { escapeHtml } from './html.js';
 import {
   AttachmentNotFoundError, AttachmentTooLargeError, fetchAttachmentByMessageId,
@@ -44,7 +44,7 @@ import { DARK_BAR, LIGHT_BAR, styles } from './web-styles.js';
 import { isLanguage, LANGUAGES, t, type Language, type StringKey } from './web-strings.js';
 import { appPolicy, framePolicy, MAIL_FRAME, SERVICE_WORKER, SHELL_HEADER } from './web-worker.js';
 import { doneListDays, MAX_CONTACTS, type MailRow, type SentRow, type StateStore } from './services/state.js';
-import { adminPasswordSet, endAdminSession, signInAdmin } from './services/settings-store.js';
+import { endUserSession, ownerClaimed, signIn } from './services/settings-store.js';
 
 export { LANGUAGE_COOKIE, readCookie, SESSION_COOKIE, tokenMatches };
 export type { Session, WebBackend, WebResponse };
@@ -731,8 +731,8 @@ export function renderLogin(lang: Language, error?: StringKey, nonce = '', upgra
       <img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true">
       <h1>mailsift</h1>
       <p class="muted">${s(upgrade ? 'login.introWrite' : 'login.intro')}</p>
-      <input type="text" name="user" value="mailsift" autocomplete="username" readonly aria-label="${s('login.account')}">
-      <input type="password" name="token" autocomplete="current-password" placeholder="${s('login.token')}" enterkeyhint="go" autofocus>
+      <input type="text" name="username" autocomplete="username" placeholder="${s('login.account')}" autocapitalize="none" spellcheck="false" required autofocus>
+      <input type="password" name="password" autocomplete="current-password" placeholder="${s('login.token')}" enterkeyhint="go" required>
       <input type="hidden" name="next" value="${escapeHtml(next)}">
       <button type="submit">${s('login.open')}</button>
       ${error ? '<p class="error" role="alert">' + s(error) + '</p>' : ''}
@@ -1285,18 +1285,19 @@ async function route(
     } catch {
       return html(413, renderLogin(lang, 'login.tooLarge', nonce));
     }
-    // One field, named as it always was, takes the administrator password or an MCP token.
+    // A username and password sign in to that person's mail and settings. The
+    // old `token` field stays for MCP clients and for a token-only deployment.
+    const username = (form.get('username') ?? '').trim();
+    const password = form.get('password') ?? '';
     const presented = (form.get('token') ?? '').trim();
     const next = signInTarget(form.get('next'));
-    // The administrator password signs in to everything, the settings included.
-    if (options.adminAuth && presented) {
-      const admin = signInAdmin(presented);
-      if (admin) {
-        return {
-          status: 303, body: '', contentType: 'text/html; charset=utf-8', cookie: adminCookie(req, admin),
-          headers: { location: next },
-        };
-      }
+    if (options.adminAuth && username) {
+      const session = signIn(username, password);
+      if (!session) return html(401, renderLogin(lang, 'login.rejected', nonce, false, next));
+      return {
+        status: 303, body: '', contentType: 'text/html; charset=utf-8', cookie: adminCookie(req, session),
+        headers: { location: next },
+      };
     }
     // An MCP token also opens the mail view, the write token with the right to act.
     const writes = writeToken !== '' && presented !== '' && tokenMatches(writeToken, presented);
@@ -1314,7 +1315,7 @@ async function route(
   if (url.pathname === '/auth/signout' && req.method === 'POST') {
     if (crossSite(req)) return json(403, { error: 'cross-site request refused', code: 'crossSite' });
     const admin = options.adminAuth ? readCookie(req.headers.cookie, ADMIN_COOKIE_NAME) : '';
-    if (admin) endAdminSession(admin);
+    if (admin) endUserSession(admin);
     const cleared = {
       cookie: sessionCookie(req, '', 0), cacheControl: 'no-store',
       ...(options.adminAuth ? { extraCookies: [adminCookie(req, '', 0)] } : {}),
@@ -1329,11 +1330,12 @@ async function route(
   // A browser signed in with the administrator password may do everything a
   // write token may. Only the server consults the settings store; the
   // tests and tools that call this without one never open it.
-  const admin = options.adminAuth ? adminSessionOf(req) : '';
-  const session: Session = admin ? 'write' : sessionOf(req, token, writeToken);
+  const signedIn = options.adminAuth ? userSessionOf(req) : undefined;
+  const admin = signedIn?.token ?? '';
+  const session: Session = signedIn ? 'write' : sessionOf(req, token, writeToken);
 
   // A server nobody has claimed yet: everything leads to the claim page.
-  if (options.adminAuth && !adminPasswordSet() && req.method === 'GET' && !url.pathname.startsWith('/api/')
+  if (options.adminAuth && !ownerClaimed() && req.method === 'GET' && !url.pathname.startsWith('/api/')
     && url.pathname !== '/setup') {
     return { status: 303, body: '', contentType: 'text/html; charset=utf-8', cacheControl: 'no-store', headers: { location: '/setup' } };
   }
@@ -1355,7 +1357,10 @@ async function route(
   }
 
   if (options.adminAuth) {
-    const settings = await routeAdmin(req, url, { lang, nonce, client, version: webVersion(), admin });
+    const settings = await routeAdmin(req, url, {
+      lang, nonce, client, version: webVersion(),
+      ...(signedIn ? { user: signedIn.user, session: signedIn.token } : {}),
+    });
     if (settings) return settings;
     // Until setup is finished there is no mail to show: the page is the setup.
     if (options.setupMode) {

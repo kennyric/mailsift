@@ -66,7 +66,7 @@ async function call(path: string, options: { method?: string; body?: unknown; he
 
 async function claim(): Promise<void> {
   const code = issueSetupCode()!;
-  const { answer } = await call('/api/admin/claim', { body: { code, password: 'a long password' } });
+  const { answer } = await call('/api/admin/claim', { body: { code, username: 'owner', password: 'a long password' } });
   expect(answer.status).toBe(200);
   cookie = String(answer.cookie).split(';')[0]!;
 }
@@ -141,11 +141,11 @@ describe('the settings API', { timeout: 30_000 }, () => {
     expect((await call('/api/admin/state')).answer.status).toBe(401);
   });
 
-  it('signs in at the ordinary form with the administrator password', async () => {
+  it('signs in at the ordinary form with username and password', async () => {
     await claim();
     cookie = '';
     const form = await routeWeb(
-      request({ method: 'POST', url: '/auth', body: 'token=a%20long%20password&next=%2Fsettings', headers: { 'sec-fetch-site': 'same-origin' } }),
+      request({ method: 'POST', url: '/auth', body: 'username=owner&password=a%20long%20password&next=%2Fsettings', headers: { 'sec-fetch-site': 'same-origin' } }),
       new URL('/auth', 'http://127.0.0.1:8410'), 'read-token', store, 'c2', { adminAuth: true, writeToken: 'write-token' },
     );
     expect(form.status).toBe(303);

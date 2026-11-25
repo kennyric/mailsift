@@ -35,9 +35,9 @@ import {
   applySettings, differsFromBoot, isOAuthProvider, mailboxReadiness,
 } from './services/settings-runtime.js';
 import {
-  ADMIN_PASSWORD_MIN, adminPasswordSet, adminSessionValid, changeAdminPassword, claimAdmin, endOtherAdminSessions,
-  newAccessToken, newMailboxId, passwordProblem, readSettings, savePendingSignIn, startAdminSession, takePendingSignIn, updateSettings,
-  type MailboxSettings, type PendingSignIn, type SettingsDocument,
+  ADMIN_PASSWORD_MIN, changeUserPassword, claimOwner, endOtherUserSessions, newAccessToken, newMailboxId, ownerClaimed,
+  passwordProblem, readSettings, savePendingSignIn, sessionUser, startUserSession, takePendingSignIn, updateSettings,
+  usernameShapeProblem, type MailboxSettings, type PendingSignIn, type SettingsDocument, type User,
 } from './services/settings-store.js';
 import { hostPort, requestChannel } from './web-access.js';
 import { json, rateWindow, readCookie, readJson, type WebResponse } from './web-http.js';
@@ -60,22 +60,25 @@ export interface AdminContext {
   nonce: string;
   client: string;
   version: string;
-  /** The signed-in administrator's session token, or '' for none. */
-  admin: string;
+  /** The signed-in user, when this request carries a valid session. */
+  user?: User;
+  /** The raw session token behind that user, for this browser's own session operations. */
+  session?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 
-/** The request's administrator session, when it carries a valid one. */
-export function adminSessionOf(req: IncomingMessage): string {
+/** The user behind the request's session cookie, when it carries a valid one. */
+export function userSessionOf(req: IncomingMessage): { token: string; user: User } | undefined {
   const token = readCookie(req.headers.cookie, ADMIN_COOKIE);
-  if (!token) return '';
+  if (!token) return undefined;
   try {
-    return adminSessionValid(token) ? token : '';
+    const user = sessionUser(token);
+    return user ? { token, user } : undefined;
   } catch {
-    return '';
+    return undefined;
   }
 }
 
@@ -467,8 +470,8 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   const zh = lang === 'zh-CN';
 
   if (isPage) {
-    if (!adminPasswordSet()) return htmlPage(renderClaimPage(lang, ctx.nonce, ctx.version), ctx.nonce);
-    if (!ctx.admin) return redirect(`/signin?next=${encodeURIComponent(path + url.search)}`);
+    if (!ownerClaimed()) return htmlPage(renderClaimPage(lang, ctx.nonce, ctx.version), ctx.nonce);
+    if (!ctx.user) return redirect(`/signin?next=${encodeURIComponent(path + url.search)}`);
     const doc = readSettings();
     if (path === '/settings' && !doc.setupCompletedAt) return redirect('/setup');
     if (path === '/setup' && doc.setupCompletedAt) return redirect('/settings');
@@ -479,24 +482,26 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
 
   // Claiming the server: the only API call without a session.
   if (path === '/api/admin/claim' && req.method === 'POST') {
-    if (adminPasswordSet()) return fail(409, 'claimed', zh ? '管理员密码已经设置过了。' : 'An administrator password is already set.');
+    if (ownerClaimed()) return fail(409, 'claimed', zh ? '管理员账号已经设置过了。' : 'An administrator account is already set.');
     if (!allowClaimPerClient(ctx.client) || !allowClaimOverall('all')) {
       return { ...fail(429, 'rate_limited', zh ? '尝试次数过多，请一分钟后再试。' : 'Too many attempts. Wait a minute.'), headers: { 'retry-after': '60' } };
     }
     const body = await readJson(req, 4096);
     const code = text(body?.['code'], 64);
+    const username = typeof body?.['username'] === 'string' ? body['username'] as string : 'owner';
     const password = typeof body?.['password'] === 'string' ? body['password'] as string : '';
-    const problem = passwordProblem(password);
+    const problem = passwordProblem(password) ?? usernameShapeProblem(username);
     if (problem) {
-      return fail(400, 'too_short', zh ? `密码至少 ${ADMIN_PASSWORD_MIN} 个字符。` : `Use at least ${ADMIN_PASSWORD_MIN} characters.`);
+      return fail(400, 'invalid', zh ? `用户名需为 1–64 个字母、数字、点、下划线或连字符；密码至少 ${ADMIN_PASSWORD_MIN} 个字符。`
+        : `Use a 1–64 character username (letters, digits, dot, underscore, hyphen) and at least ${ADMIN_PASSWORD_MIN} characters for the password.`);
     }
-    const session = claimAdmin(code, password);
-    if (!session) return fail(401, 'invalid_code', zh ? '设置码不正确或已失效。请查看服务日志中最新的设置码。' : 'That setup code is wrong or no longer valid. Use the latest one in the service log.');
-    log.info('The administrator password was set with the one-time setup code.');
+    const session = claimOwner(code, username, password);
+    if (!session) return fail(401, 'invalid_code', zh ? '设置码或用户名不正确，或已失效。请查看服务日志中最新的设置码。' : 'That setup code or username is wrong or no longer valid. Use the latest one in the service log.');
+    log.info('The owner account was claimed with the one-time setup code.');
     return { ...ok({ claimed: true }), cookie: adminCookie(req, session) };
   }
 
-  if (!ctx.admin) return fail(401, 'admin_required', zh ? '请用管理员密码登录。' : 'Sign in with the administrator password.');
+  if (!ctx.user) return fail(401, 'admin_required', zh ? '请先登录。' : 'Sign in first.');
 
   if (path === '/api/admin/state' && req.method === 'GET') {
     return ok(statePayload(req, readSettings()));
@@ -685,14 +690,14 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       const next = typeof body['next'] === 'string' ? body['next'] as string : '';
       if (passwordProblem(next)) return fail(400, 'too_short', zh ? `新密码至少 ${ADMIN_PASSWORD_MIN} 个字符。` : `Use at least ${ADMIN_PASSWORD_MIN} characters.`);
       if (!allowClaimPerClient(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试次数过多，请一分钟后再试。' : 'Too many attempts. Wait a minute.');
-      if (!changeAdminPassword(current, next)) return fail(401, 'not_accepted', zh ? '当前密码不正确。' : 'The current password is not right.');
-      log.info('The administrator password was changed; other sessions were signed out.');
-      // Every session ended with the change, this one included; it gets a fresh one.
-      return { ...ok({ changed: true }), cookie: adminCookie(req, startAdminSession()) };
+      if (!changeUserPassword(ctx.user.id, current, next)) return fail(401, 'not_accepted', zh ? '当前密码不正确。' : 'The current password is not right.');
+      log.info('A password was changed; that user\'s other sessions were signed out.');
+      // Every session of this user ended with the change, this one included; it gets a fresh one.
+      return { ...ok({ changed: true }), cookie: adminCookie(req, startUserSession(ctx.user.id)) };
     }
 
     case '/api/admin/sessions/end-others': {
-      const ended = endOtherAdminSessions(ctx.admin);
+      const ended = endOtherUserSessions(ctx.user.id, ctx.session ?? '');
       return ok({ ended });
     }
 

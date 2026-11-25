@@ -19,8 +19,9 @@ type Dict = Record<string, string>;
 
 const EN: Dict = {
   'claim.title': 'Set up mailsift',
-  'claim.intro': 'Enter the one-time setup code from the service log, and choose the administrator password you will sign in with.',
+  'claim.intro': 'Enter the one-time setup code from the service log, then choose the username and password you will sign in with.',
   'claim.code': 'Setup code',
+  'claim.username': 'Username',
   'claim.password': 'Administrator password',
   'claim.confirm': 'Repeat the password',
   'claim.submit': 'Continue',
@@ -179,8 +180,9 @@ const EN: Dict = {
 
 const ZH: Dict = {
   'claim.title': '设置 mailsift',
-  'claim.intro': '输入服务日志里的一次性设置码，并设置以后登录用的管理员密码。',
+  'claim.intro': '输入服务日志里的一次性设置码，然后设置以后登录用的用户名和密码。',
   'claim.code': '设置码',
+  'claim.username': '用户名',
   'claim.password': '管理员密码',
   'claim.confirm': '再次输入密码',
   'claim.submit': '继续',
@@ -399,7 +401,8 @@ export function renderClaimPage(lang: Language, nonce: string, version: string):
       <p class="muted">${s('claim.intro')}</p>
       <label class="st-claim-label" for="code">${s('claim.code')}</label>
       <input id="code" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" required autofocus>
-      <input type="text" name="username" value="mailsift" autocomplete="username" hidden>
+      <label class="st-claim-label" for="username">${s('claim.username')}</label>
+      <input id="username" name="username" value="owner" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <label class="st-claim-label" for="password">${s('claim.password')}</label>
       <input id="password" type="password" autocomplete="new-password" minlength="${ADMIN_PASSWORD_MIN}" required>
       <label class="st-claim-label" for="confirm">${s('claim.confirm')}</label>
@@ -427,7 +430,11 @@ export function renderClaimPage(lang: Language, nonce: string, version: string):
         try {
           var response = await fetch('/api/admin/claim', {
             method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
-            body: JSON.stringify({ code: document.getElementById('code').value, password: password }),
+            body: JSON.stringify({
+              code: document.getElementById('code').value,
+              username: document.getElementById('username').value,
+              password: password,
+            }),
           });
           var data = await response.json().catch(function () { return {}; });
           if (response.ok) { location.replace('/setup'); return; }

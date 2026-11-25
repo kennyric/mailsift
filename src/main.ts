@@ -32,7 +32,7 @@ import { flushHeartbeats, heartbeatProblem, heartbeatUrl } from './services/hear
 import { getLogger } from './logger.js';
 import { metrics } from './metrics.js';
 import { startMcpHttp } from './mcp.js';
-import { adminPasswordSet, issueSetupCode, readSettings, resetAdmin } from './services/settings-store.js';
+import { issueSetupCode, ownerClaimed, readSettings, resetAdmin } from './services/settings-store.js';
 import { mailboxReadiness } from './services/settings-runtime.js';
 import {
   onRestartRequested, RESTART_EXIT_CODE, restartRequested, setServerMode, supervised, type ServerMode,
@@ -327,7 +327,7 @@ async function serve(): Promise<number> {
   const mode: ServerMode = !doc.setupCompletedAt ? 'setup' : ready > 0 ? 'running' : 'idle';
   setServerMode(mode);
 
-  const code = adminPasswordSet() ? undefined : issueSetupCode();
+  const code = ownerClaimed() ? undefined : issueSetupCode();
   if (code || mode === 'setup') announceSetup(code, Boolean(doc.setupCompletedAt));
   if (!supervised()) {
     log.warn('Started without the supervisor (dist/src/server.js): saved settings will need a manual restart.');

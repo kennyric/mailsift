@@ -301,7 +301,7 @@ describe('what a session may do', () => {
     const { answer } = await call(seeded(), '/signin', { as: 'read' });
     expect(answer.status).toBe(200);
     expect(String(answer.body)).toContain('action="/auth"');
-    expect(String(answer.body)).toContain('administrator password');
+    expect(String(answer.body)).toContain('username and password');
   });
 });
 

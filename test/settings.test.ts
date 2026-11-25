@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import './setup.js';
-import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { randomBytes, scryptSync } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import { createRequire } from 'node:module';
 import {
-  adminPasswordSet, adminSessionValid, changeAdminPassword, claimAdmin, closeSettingsStore, endOtherAdminSessions,
-  ensureAccessTokens, issueSetupCode, normalizeSetupCode, readSettings, resetAdmin, savePendingSignIn, settingsKeyPath,
-  signInAdmin, SettingsKeyError, startAdminSession, takePendingSignIn, updateSettings,
+  changeUserPassword, claimOwner, closeSettingsStore, createUser, endOtherUserSessions,
+  ensureAccessTokens, issueSetupCode, listUsers, normalizeSetupCode, ownerClaimed, readSettings, resetAdmin,
+  savePendingSignIn, sessionUser, settingsKeyPath, signIn, startUserSession, takePendingSignIn, updateSettings,
+  usernameProblem, SettingsKeyError,
 } from '../src/services/settings-store.js';
 import { applySettings, differsFromBoot, mailboxReadiness, rememberBootState } from '../src/services/settings-runtime.js';
 import { checkField, crossFieldProblems, FIELD_BY_KEY, SECRET_KEYS } from '../src/settings-catalog.js';
@@ -92,21 +94,24 @@ describe('the settings document', () => {
   });
 });
 
+const ownerID = (): string => listUsers().find((user) => user.role === 'owner')!.id;
+
 // Each password check is a deliberately slow scrypt; give these room under a busy test run.
-describe('administrator access', { timeout: 30_000 }, () => {
+describe('user access', { timeout: 30_000 }, () => {
   it('is claimed once with the setup code, which is then spent', () => {
-    expect(adminPasswordSet()).toBe(false);
+    expect(ownerClaimed()).toBe(false);
     const code = issueSetupCode()!;
     expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
-    expect(claimAdmin('WRONG-CODE-0000-0000', 'a long password')).toBeUndefined();
-    expect(claimAdmin(code, 'short')).toBeUndefined();
+    expect(claimOwner('WRONG-CODE-0000-0000', 'owner', 'a long password')).toBeUndefined();
+    expect(claimOwner(code, 'owner', 'short')).toBeUndefined();
     // Typed loosely: lower case, spaces, O for 0.
     const loose = code.toLowerCase().replace(/-/g, ' ').replace(/0/g, 'o');
-    const session = claimAdmin(loose, 'a long password');
+    const session = claimOwner(loose, 'owner', 'a long password');
     expect(session).toBeTruthy();
-    expect(adminSessionValid(session!)).toBe(true);
-    expect(adminPasswordSet()).toBe(true);
-    expect(claimAdmin(code, 'another long password')).toBeUndefined();
+    expect(sessionUser(session!)?.username).toBe('owner');
+    expect(sessionUser(session!)?.role).toBe('owner');
+    expect(ownerClaimed()).toBe(true);
+    expect(claimOwner(code, 'owner', 'another long password')).toBeUndefined();
     expect(issueSetupCode()).toBeUndefined();
   });
 
@@ -114,38 +119,84 @@ describe('administrator access', { timeout: 30_000 }, () => {
     const first = issueSetupCode()!;
     const second = issueSetupCode()!;
     expect(second).not.toBe(first);
-    expect(claimAdmin(first, 'a long password')).toBeUndefined();
-    expect(claimAdmin(second, 'a long password')).toBeTruthy();
+    expect(claimOwner(first, 'owner', 'a long password')).toBeUndefined();
+    expect(claimOwner(second, 'owner', 'a long password')).toBeTruthy();
   });
 
-  it('signs in with the password; changing it ends every other session', () => {
-    const one = claimAdmin(issueSetupCode()!, 'a long password')!;
-    expect(signInAdmin('wrong password')).toBeUndefined();
-    const two = signInAdmin('a long password')!;
-    expect(adminSessionValid(two)).toBe(true);
-    expect(changeAdminPassword('wrong password', 'a new long password')).toBe(false);
-    expect(adminSessionValid(two)).toBe(true);
-    expect(changeAdminPassword('a long password', 'a new long password')).toBe(true);
-    expect(adminSessionValid(one)).toBe(false);
-    expect(adminSessionValid(two)).toBe(false);
-    const three = startAdminSession();
-    expect(adminSessionValid(three)).toBe(true);
-    const four = signInAdmin('a new long password')!;
-    expect(endOtherAdminSessions(four)).toBe(1);
-    expect(adminSessionValid(three)).toBe(false);
-    expect(adminSessionValid(four)).toBe(true);
+  it('signs in by username; names are case-insensitive and unknown names are rejected', () => {
+    claimOwner(issueSetupCode()!, 'Kenny', 'a long password');
+    expect(signIn('nobody', 'a long password')).toBeUndefined();
+    expect(signIn('kenny', 'wrong password')).toBeUndefined();
+    const session = signIn('KENNY', 'a long password')!;
+    expect(sessionUser(session)?.username).toBe('Kenny');
   });
 
-  it('can be reset from the server, which signs everyone out', () => {
-    const session = claimAdmin(issueSetupCode()!, 'a long password')!;
+  it('changes a password and ends that user\'s other sessions', () => {
+    const one = claimOwner(issueSetupCode()!, 'owner', 'a long password')!;
+    const two = signIn('owner', 'a long password')!;
+    expect(sessionUser(two)).toBeDefined();
+    expect(changeUserPassword(ownerID(), 'wrong password', 'a new long password')).toBe(false);
+    expect(sessionUser(two)).toBeDefined();
+    expect(changeUserPassword(ownerID(), 'a long password', 'a new long password')).toBe(true);
+    expect(sessionUser(one)).toBeUndefined();
+    expect(sessionUser(two)).toBeUndefined();
+    const three = startUserSession(ownerID());
+    expect(sessionUser(three)).toBeDefined();
+    const four = signIn('owner', 'a new long password')!;
+    expect(endOtherUserSessions(ownerID(), four)).toBe(1);
+    expect(sessionUser(three)).toBeUndefined();
+    expect(sessionUser(four)).toBeDefined();
+  });
+
+  it('can be reset from the server, which locks the owner until a new claim', () => {
+    const session = claimOwner(issueSetupCode()!, 'owner', 'a long password')!;
     const code = resetAdmin();
-    expect(adminPasswordSet()).toBe(false);
-    expect(adminSessionValid(session)).toBe(false);
-    expect(claimAdmin(code, 'a fresh long password')).toBeTruthy();
+    expect(ownerClaimed()).toBe(false);
+    expect(sessionUser(session)).toBeUndefined();
+    expect(claimOwner(code, 'owner', 'a fresh long password')).toBeTruthy();
+  });
+
+  it('creates members with unique, case-insensitive names', () => {
+    claimOwner(issueSetupCode()!, 'owner', 'a long password');
+    expect(usernameProblem('owner')).toBe('taken');
+    const member = createUser('friend', 'a long password')!;
+    expect(member.role).toBe('member');
+    expect(usernameProblem('FRIEND')).toBe('taken');
+    expect(createUser('friend', 'another long password')).toBeUndefined();
+    expect(signIn('friend', 'a long password')).toBeTruthy();
   });
 
   it('compares setup codes leniently but exactly', () => {
     expect(normalizeSetupCode('ab1o-il22')).toBe('AB10112' + '2');
+  });
+});
+
+describe('migrating a single-admin install', { timeout: 30_000 }, () => {
+  it('turns the old password into the owner user and drops old sessions', () => {
+    const path = process.env.STATE_DB_PATH!;
+    const salt = randomBytes(16);
+    const derived = scryptSync('a long password', salt, 32, { N: 32_768, r: 8, p: 1, maxmem: 96 * 1024 * 1024 });
+    const hash = `scrypt$32768$${salt.toString('base64url')}$${derived.toString('base64url')}`;
+    mkdirSync(join(dir, 'data'), { recursive: true });
+    const old = new DatabaseSync(path);
+    old.exec(`
+      CREATE TABLE settings_admin (id INTEGER PRIMARY KEY CHECK (id = 1), password_hash TEXT, setup_code_hash TEXT, changed_at TEXT);
+      CREATE TABLE settings_admin_sessions (token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+    `);
+    old.prepare('INSERT INTO settings_admin (id, password_hash, setup_code_hash, changed_at) VALUES (1, ?, NULL, ?)')
+      .run(hash, new Date().toISOString());
+    old.prepare('INSERT INTO settings_admin_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)')
+      .run('old-session', Date.now(), Date.now() + 60_000);
+    old.close();
+
+    // Opening the store runs the migration.
+    expect(readSettings().mailboxes).toEqual([]);
+    const users = listUsers();
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({ id: 'owner', username: 'owner', role: 'owner', disabled: false });
+    expect(ownerClaimed()).toBe(true);
+    expect(sessionUser('old-session')).toBeUndefined();
+    expect(signIn('owner', 'a long password')).toBeTruthy();
   });
 });
 

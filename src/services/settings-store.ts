@@ -66,6 +66,17 @@ export interface SettingsDocument {
   setupCompletedAt?: string;
 }
 
+export type UserRole = 'owner' | 'member';
+
+/** Someone who can sign in: the owner, or a member the owner created. */
+export interface User {
+  id: string;
+  username: string;
+  role: UserRole;
+  disabled: boolean;
+  createdAt: string;
+}
+
 const emptyDocument = (): SettingsDocument => ({ values: {}, mailboxes: [] });
 
 // ---------------------------------------------------------------------------
@@ -107,11 +118,28 @@ function database(): DatabaseSync {
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS users (
+      id            TEXT PRIMARY KEY,
+      username      TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','member')),
+      disabled      INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL,
+      changed_at    TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
   `);
   if (path !== ':memory:') {
     try { chmodSync(path, 0o600); } catch { /* not ours to change, e.g. a read-only mount */ }
   }
   connection = { path, db };
+  migrateUsers(db);
   return db;
 }
 
@@ -132,6 +160,28 @@ function transaction<T>(db: DatabaseSync, work: () => T): T {
     db.exec('ROLLBACK');
     throw error;
   }
+}
+
+/**
+ * Turn the single administrator of an older install into the owner user.
+ *
+ * Runs once: the first boot that finds no users and an existing password hash
+ * copies that hash to `users` under the username `owner`, and drops the old
+ * browser sessions. Fresh installs have no hash yet, so they stay empty until
+ * the first claim.
+ */
+function migrateUsers(db: DatabaseSync): void {
+  const users = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
+  if (users.n > 0) return;
+  const admin = db.prepare('SELECT password_hash FROM settings_admin WHERE id = 1').get() as
+    { password_hash: string | null } | undefined;
+  if (!admin?.password_hash) return;
+  const now = new Date().toISOString();
+  transaction(db, () => {
+    db.prepare(`INSERT INTO users (id, username, password_hash, role, disabled, created_at, changed_at)
+      VALUES ('owner', 'owner', ?, 'owner', 0, ?, ?)`).run(admin.password_hash, now, now);
+    db.prepare('DELETE FROM settings_admin_sessions').run();
+  });
 }
 
 function readKeyFile(path: string): Buffer | undefined {
@@ -454,81 +504,187 @@ export function resetAdmin(): string {
   const db = database();
   return transaction(db, () => {
     const code = newSetupCode();
+    const now = new Date().toISOString();
     db.prepare(`INSERT INTO settings_admin (id, password_hash, setup_code_hash, changed_at) VALUES (1, NULL, ?, ?)
       ON CONFLICT(id) DO UPDATE SET password_hash = NULL, setup_code_hash = excluded.setup_code_hash, changed_at = excluded.changed_at`)
-      .run(digest(normalizeSetupCode(code)), new Date().toISOString());
+      .run(digest(normalizeSetupCode(code)), now);
     db.exec('DELETE FROM settings_admin_sessions');
+    // Lock the owner row with a password nobody knows; claiming sets a new one.
+    db.prepare("UPDATE users SET password_hash = ?, changed_at = ? WHERE role = 'owner'")
+      .run(hashPassword(randomBytes(32).toString('base64url')), now);
+    db.prepare("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE role = 'owner')").run();
     return code;
   });
 }
 
-function newSession(db: DatabaseSync): string {
+// ---------------------------------------------------------------------------
+// Users and sessions
+// ---------------------------------------------------------------------------
+
+interface UserRow {
+  id: string; username: string; password_hash: string; role: UserRole;
+  disabled: number; created_at: string;
+}
+
+const toUser = (row: UserRow): User => ({
+  id: row.id, username: row.username, role: row.role, disabled: Boolean(row.disabled), createdAt: row.created_at,
+});
+
+export function normalizeUsername(raw: string): string {
+  return raw.normalize('NFKC').trim();
+}
+
+export function usernameShapeProblem(username: string): 'empty' | 'long' | 'chars' | undefined {
+  const name = normalizeUsername(username);
+  if (!name) return 'empty';
+  if ([...name].length > 64) return 'long';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return 'chars';
+  return undefined;
+}
+
+/** Why a username cannot be used, for the form to say. */
+export function usernameProblem(username: string, exceptID = ''): 'empty' | 'long' | 'chars' | 'taken' | undefined {
+  const shape = usernameShapeProblem(username);
+  if (shape) return shape;
+  const name = normalizeUsername(username);
+  const taken = database().prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND id <> ?').get(name, exceptID);
+  return taken ? 'taken' : undefined;
+}
+
+/**
+ * Whether somebody can sign in as the owner right now.
+ *
+ * A pending setup code means the owner is locked out on purpose (a reset), so
+ * this is false even when the row exists: the claim page is what reopens it.
+ */
+export function ownerClaimed(): boolean {
+  const row = database().prepare(`
+    SELECT 1 FROM users u JOIN settings_admin a ON a.id = 1
+    WHERE u.role = 'owner' AND u.disabled = 0 AND a.setup_code_hash IS NULL
+    LIMIT 1
+  `).get();
+  return Boolean(row);
+}
+
+function newUserSession(db: DatabaseSync, userID: string): string {
   const token = randomBytes(32).toString('base64url');
   const now = Date.now();
-  db.prepare('DELETE FROM settings_admin_sessions WHERE expires_at <= ?').run(now);
-  db.prepare('INSERT INTO settings_admin_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)')
-    .run(digest(token), now, now + ADMIN_SESSION_TTL_MS);
+  db.prepare('DELETE FROM user_sessions WHERE expires_at <= ?').run(now);
+  db.prepare('INSERT INTO user_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(digest(token), userID, now, now + ADMIN_SESSION_TTL_MS);
   return token;
 }
 
 /**
- * Use the setup code to set the first password. The code is spent here and
- * cannot be used again; the result is a signed-in session.
+ * Claim the instance: the setup code plus the owner's username and password.
+ *
+ * Re-usable after `resetAdmin`, which leaves the owner row in place but sets a
+ * fresh code and an unusable password; claiming updates that row rather than
+ * creating a second owner.
  */
-export function claimAdmin(code: string, password: string): string | undefined {
-  if (passwordProblem(password)) return undefined;
+export function claimOwner(code: string, username: string, password: string): string | undefined {
+  const name = normalizeUsername(username);
+  if (passwordProblem(password) || usernameShapeProblem(name) !== undefined) return undefined;
   const db = database();
   // Hash outside the transaction: scrypt takes a moment and must not hold the write lock.
   const hashed = hashPassword(password);
   return transaction(db, () => {
-    const row = adminRow();
-    if (!row || row.password_hash || !row.setup_code_hash) return undefined;
-    if (!digestMatches(row.setup_code_hash, normalizeSetupCode(code))) return undefined;
+    const admin = adminRow();
+    if (!admin?.setup_code_hash) return undefined;
+    if (!digestMatches(admin.setup_code_hash, normalizeSetupCode(code))) return undefined;
+    const existing = db.prepare("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get() as { id: string } | undefined;
+    const clash = db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND id <> ?')
+      .get(name, existing?.id ?? '');
+    if (clash) return undefined;
+    const now = new Date().toISOString();
+    const id = existing?.id ?? 'owner';
+    if (existing) {
+      db.prepare('UPDATE users SET username = ?, password_hash = ?, disabled = 0, changed_at = ? WHERE id = ?')
+        .run(name, hashed, now, id);
+      db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(id);
+    } else {
+      db.prepare(`INSERT INTO users (id, username, password_hash, role, disabled, created_at, changed_at)
+        VALUES (?, ?, ?, 'owner', 0, ?, ?)`).run(id, name, hashed, now, now);
+    }
+    // Kept in step for one release so the previous image can still sign in on rollback.
     db.prepare('UPDATE settings_admin SET password_hash = ?, setup_code_hash = NULL, changed_at = ? WHERE id = 1')
-      .run(hashed, new Date().toISOString());
-    return newSession(db);
+      .run(hashed, now);
+    return newUserSession(db, id);
   });
 }
 
-export function signInAdmin(password: string): string | undefined {
-  const row = adminRow();
-  if (!row?.password_hash || !password || password.length > MAX_PASSWORD) return undefined;
-  if (!passwordMatches(row.password_hash, password)) return undefined;
-  return newSession(database());
+export function signIn(username: string, password: string): string | undefined {
+  const db = database();
+  const row = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE')
+    .get(normalizeUsername(username)) as UserRow | undefined;
+  if (!row) {
+    // Spend the same scrypt time, so an unknown name cannot be told from a wrong password.
+    hashPassword(password || 'unknown-user');
+    return undefined;
+  }
+  const ok = Boolean(password) && password.length <= MAX_PASSWORD && passwordMatches(row.password_hash, password);
+  if (!ok || row.disabled) return undefined;
+  return newUserSession(db, row.id);
 }
 
-/** Change the password; every session ends with it (see startAdminSession for the caller's next one). */
-export function changeAdminPassword(current: string, next: string): boolean {
+/** The signed-in user behind a session token, or undefined when it is expired or disabled. */
+export function sessionUser(token: string): User | undefined {
+  if (!token) return undefined;
+  const row = database().prepare(`
+    SELECT u.* FROM user_sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0
+  `).get(digest(token), Date.now()) as UserRow | undefined;
+  return row ? toUser(row) : undefined;
+}
+
+export function startUserSession(userID: string): string {
+  return newUserSession(database(), userID);
+}
+
+export function endUserSession(token: string): void {
+  if (token) database().prepare('DELETE FROM user_sessions WHERE token_hash = ?').run(digest(token));
+}
+
+/** End every session of this user except the one that asked. */
+export function endOtherUserSessions(userID: string, keepToken: string): number {
+  const result = database().prepare('DELETE FROM user_sessions WHERE user_id = ? AND token_hash <> ?')
+    .run(userID, digest(keepToken));
+  return Number(result.changes);
+}
+
+/** Change one user's password; every session of theirs ends with it. */
+export function changeUserPassword(userID: string, current: string, next: string): boolean {
   if (passwordProblem(next)) return false;
-  const row = adminRow();
-  if (!row?.password_hash || !passwordMatches(row.password_hash, current)) return false;
-  const hashed = hashPassword(next);
   const db = database();
+  const row = db.prepare('SELECT password_hash, role FROM users WHERE id = ?').get(userID) as
+    { password_hash: string; role: UserRole } | undefined;
+  if (!row || !passwordMatches(row.password_hash, current)) return false;
+  const hashed = hashPassword(next);
+  const now = new Date().toISOString();
   transaction(db, () => {
-    db.prepare('UPDATE settings_admin SET password_hash = ?, changed_at = ? WHERE id = 1').run(hashed, new Date().toISOString());
-    db.exec('DELETE FROM settings_admin_sessions');
+    db.prepare('UPDATE users SET password_hash = ?, changed_at = ? WHERE id = ?').run(hashed, now, userID);
+    db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(userID);
+    // Rollback compatibility for the owner only.
+    if (row.role === 'owner') {
+      db.prepare('UPDATE settings_admin SET password_hash = ?, changed_at = ? WHERE id = 1').run(hashed, now);
+    }
   });
   return true;
 }
 
-/** A new signed-in browser session, for a caller whose identity was just established. */
-export function startAdminSession(): string {
-  return newSession(database());
+export function listUsers(): User[] {
+  const rows = database().prepare('SELECT * FROM users ORDER BY created_at, username').all() as unknown as UserRow[];
+  return rows.map(toUser);
 }
 
-export function adminSessionValid(token: string): boolean {
-  if (!token) return false;
-  const row = database().prepare('SELECT expires_at FROM settings_admin_sessions WHERE token_hash = ?').get(digest(token)) as
-    { expires_at: number } | undefined;
-  return Boolean(row && row.expires_at > Date.now());
-}
-
-export function endAdminSession(token: string): void {
-  if (token) database().prepare('DELETE FROM settings_admin_sessions WHERE token_hash = ?').run(digest(token));
-}
-
-/** End every browser session except the caller's. */
-export function endOtherAdminSessions(keep: string): number {
-  const result = database().prepare('DELETE FROM settings_admin_sessions WHERE token_hash <> ?').run(digest(keep));
-  return Number(result.changes);
+/** Create a member (the owner is created by the claim). Undefined when the name or password is unsuitable. */
+export function createUser(username: string, password: string, role: UserRole = 'member'): User | undefined {
+  const name = normalizeUsername(username);
+  if (passwordProblem(password) || usernameProblem(name) !== undefined) return undefined;
+  const hashed = hashPassword(password);
+  const id = randomUUID().replace(/-/g, '').slice(0, 16);
+  const now = new Date().toISOString();
+  database().prepare(`INSERT INTO users (id, username, password_hash, role, disabled, created_at, changed_at)
+    VALUES (?, ?, ?, ?, 0, ?, ?)`).run(id, name, hashed, role, now, now);
+  return { id, username: name, role, disabled: false, createdAt: now };
 }

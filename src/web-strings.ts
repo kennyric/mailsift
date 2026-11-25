@@ -19,7 +19,7 @@ export function isLanguage(value: string): value is Language {
 
 const en = {
   'login.title': 'Sign in',
-  'login.intro': 'Sign in with the administrator password.',
+  'login.intro': 'Sign in with your username and password.',
   'login.account': 'Account',
   'login.token': 'Password',
   'login.open': 'Open',
@@ -318,7 +318,7 @@ const en = {
   'category.Service failure': 'Service failure',
 
   // ---- What needs the reader: the queue, and dealing with it ----
-  'login.introWrite': 'Sign in with the administrator password to act on mail: archive, reply, correct a judgement.',
+  'login.introWrite': 'Sign in with your username and password to act on mail: archive, reply, correct a judgement.',
   'lede.attention': '{n} need you',
   'lede.attention1': '{n} needs you',
   'lede.attention0': 'Nothing needs you',
@@ -739,7 +739,7 @@ export type StringKey = keyof typeof en;
 
 const zhCN: Record<StringKey, string> = {
   'login.title': '登录',
-  'login.intro': '请输入管理员密码登录。',
+  'login.intro': '请输入用户名和密码登录。',
   'login.account': '账号',
   'login.token': '密码',
   'login.open': '进入',
@@ -1024,7 +1024,7 @@ const zhCN: Record<StringKey, string> = {
   'category.Keyword match': '关键词命中',
   'category.Service failure': '服务故障',
 
-  'login.introWrite': '用管理员密码登录即可处理邮件：归档、回复、纠正判定。',
+  'login.introWrite': '用用户名和密码登录即可处理邮件：归档、回复、纠正判定。',
   'lede.attention': '{n} 封待你处理',
   'lede.attention1': '{n} 封待你处理',
   'lede.attention0': '没有待处理的邮件',
