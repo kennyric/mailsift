@@ -26,6 +26,8 @@ const DARK_PALETTE = '--bg:#0e1013;--surface:#16191e;--fill:#1e2229;--fill-2:#26
   + '--backdrop:rgba(0,0,0,.5);--shadow-sheet:0 -8px 32px rgba(0,0,0,.5);--shadow-pop:0 8px 24px rgba(0,0,0,.45),0 0 0 1px var(--line);'
   + '--seg-on:#363d49;--switch-off:#6b7482;--ok:#56c48d;--ok-tint:#1b3126;color-scheme:dark';
 export const LIGHT_BAR = '#f4f5f7';
+/** The dark palette's --bg, used for the installed app's splash and status bar. */
+export const DARK_BAR = '#0e1013';
 
 const SANS = '-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",Roboto,"Noto Sans CJK SC","Microsoft YaHei",sans-serif';
 const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace';

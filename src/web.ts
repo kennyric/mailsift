@@ -40,7 +40,7 @@ import {
 } from './web-http.js';
 import { appleTouch180, favicon64, icon192, icon512, maskable512 } from './web-icons.js';
 import { liveHub } from './web-live.js';
-import { LIGHT_BAR, styles } from './web-styles.js';
+import { DARK_BAR, LIGHT_BAR, styles } from './web-styles.js';
 import { isLanguage, LANGUAGES, t, type Language, type StringKey } from './web-strings.js';
 import { appPolicy, framePolicy, MAIL_FRAME, SERVICE_WORKER, SHELL_HEADER } from './web-worker.js';
 import { doneListDays, MAX_CONTACTS, type MailRow, type SentRow, type StateStore } from './services/state.js';
@@ -763,6 +763,8 @@ function themeBoot(): string {
   return "(function(){try{var c=localStorage.getItem('theme');"
     + "if(c!=='dark'&&c!=='light')c='light';"
     + "document.documentElement.dataset.theme=c;"
+    // The manifest is served per request; the cookie tells it which bar to bake.
+    + "document.cookie='theme='+c+';path=/;max-age=31536000;SameSite=Lax';"
     + "var l=localStorage.getItem('layout');"
     + "if(l!=='cards'&&l!=='digest'&&l!=='crisp'&&l!=='default')l='cards';"
     + "document.documentElement.dataset.layout=l;"
@@ -1027,10 +1029,13 @@ function page(lang: Language, title: string, body: string, nonce = ''): string {
  *
  * `standalone` so it opens without browser chrome, and the theme colour is the
  * app's own header rather than the brand blue, so the status bar continues the
- * page instead of sitting on top of it. Worded per language, because the
- * shortcut names show up in the launcher.
+ * page instead of sitting on top of it. The light/dark choice arrives in the
+ * theme cookie, because the browser bakes these colours into the installed app
+ * (the splash and task switcher) at install time. Worded per language, because
+ * the shortcut names show up in the launcher.
  */
-function manifest(lang: Language): string {
+function manifest(lang: Language, dark = false): string {
+  const bar = dark ? DARK_BAR : LIGHT_BAR;
   return JSON.stringify({
     id: '/',
     name: 'mailsift',
@@ -1042,8 +1047,12 @@ function manifest(lang: Language): string {
     display: 'standalone',
     display_override: ['standalone'],
     categories: ['productivity', 'utilities'],
-    background_color: LIGHT_BAR,
-    theme_color: LIGHT_BAR,
+    // The splash and the task switcher take these when the app is installed;
+    // the page keeps its live meta theme-color in sync after that. Served per
+    // request from the reader's theme cookie so a dark-mode install gets a
+    // dark launch screen instead of a white flash.
+    background_color: bar,
+    theme_color: bar,
     icons: [
       { src: '/icon-192.png?v=3', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icon-512.png?v=3', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -1227,8 +1236,10 @@ async function route(
   // names appear in the launcher.
   if (url.pathname === '/manifest.webmanifest' && req.method === 'GET') {
     return {
-      status: 200, body: manifest(pickLanguage(req)), contentType: 'application/manifest+json',
-      // It differs by language, so no shared cache may hand one reader's copy to another.
+      status: 200,
+      body: manifest(pickLanguage(req), readCookie(req.headers.cookie, 'theme') === 'dark'),
+      contentType: 'application/manifest+json',
+      // It differs by language and theme, so no shared cache may hand one reader's copy to another.
       cacheControl: 'private, max-age=3600', headers: { vary: 'Accept-Language, Cookie' },
     };
   }

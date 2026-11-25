@@ -1786,6 +1786,9 @@ function readTheme() {
 function applyTheme(choice) {
   const root = document.documentElement;
   root.dataset.theme = choice;
+  // The manifest is served per request: this cookie is how an install gets a
+  // splash and task-switcher colour that match the theme chosen here.
+  try { document.cookie = 'theme=' + choice + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
   // iOS samples theme-color when a home-screen app opens, but the safe-area
   // backing above is live CSS. Keep both native status-bar text style and
   // browser chrome metadata in sync with the active palette.
