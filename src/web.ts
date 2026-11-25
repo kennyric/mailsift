@@ -36,7 +36,7 @@ import { routeMailbox } from './web-mailbox.js';
 import { clientScript, LANGUAGE_COOKIE, storeLanguageScript } from './web-client.js';
 import {
   credentialMark, crossSite, embedded, json, localHost, presentedToken, rateWindow, readBody, readCookie,
-  SESSION_COOKIE, sessionOf, timedOut, tokenMatches, within, type Session, type WebResponse,
+  SESSION_COOKIE, sessionOf, themeOf, timedOut, tokenMatches, within, type Session, type WebResponse,
 } from './web-http.js';
 import { appleTouch180, favicon64, icon192, icon512, maskable512 } from './web-icons.js';
 import { liveHubFor } from './web-live.js';
@@ -1205,16 +1205,19 @@ export function webRateLimited(req: IncomingMessage, path: string): WebResponse 
     return { ...json(429, { error: 'too many requests from this device; wait a moment', code: 'rate_limited' }), headers };
   }
   const lang = pickLanguage(req);
+  const theme = themeOf(req);
   const words = (key: StringKey): string => escapeHtml(t(lang, key));
-  return {
-    status: 429, contentType: 'text/html; charset=utf-8',
-    body: page(lang, 'mailsift', `
+  const body = page(lang, 'mailsift', `
     <div class="login">
       <img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true">
       <h1>mailsift</h1>
       <p class="muted" role="alert">${words('error.rate_limited')}</p>
       <p><a href="">${words('network.retry')}</a></p>
-    </div>`),
+    </div>`)
+    .replace(`<meta name="theme-color" content="${LIGHT_BAR}">`, `<meta name="theme-color" content="${theme === 'dark' ? DARK_BAR : LIGHT_BAR}">`)
+    .replace(`<html lang="${lang}">`, `<html lang="${lang}" data-theme="${theme}">`);
+  return {
+    status: 429, contentType: 'text/html; charset=utf-8', body,
     headers: { ...headers, 'content-security-policy': appPolicy(randomBytes(16).toString('base64')), 'x-frame-options': 'DENY' },
   };
 }
@@ -1247,10 +1250,21 @@ async function route(
   options: WebOptions,
 ): Promise<WebResponse> {
   const writeToken = options.writeToken ?? '';
+  const lang = pickLanguage(req);
+  const theme = themeOf(req);
   // One nonce per response: only the script that carries it runs.
   const nonce = randomBytes(16).toString('base64');
+  // Android Chrome paints its navigation bar from the initial theme-color,
+  // not from a value a script changes after parsing. Serve the saved theme in
+  // the HTML as well as letting themeBoot keep it in step afterwards.
+  const paintTheme = (body: string): string => {
+    const bar = theme === 'dark' ? DARK_BAR : LIGHT_BAR;
+    return body
+      .replace(`<meta name="theme-color" content="${LIGHT_BAR}">`, `<meta name="theme-color" content="${bar}">`)
+      .replace(`<html lang="${lang}">`, `<html lang="${lang}" data-theme="${theme}">`);
+  };
   const html = (status: number, body: string, shell = false): WebResponse => ({
-    status, body, contentType: 'text/html; charset=utf-8',
+    status, body: paintTheme(body), contentType: 'text/html; charset=utf-8',
     headers: {
       'content-security-policy': appPolicy(nonce),
       'x-frame-options': 'DENY',
@@ -1277,8 +1291,6 @@ async function route(
   if (asset && req.method === 'GET') {
     return { status: 200, body: asset.body, contentType: asset.type, cacheControl: asset.cache };
   }
-
-  const lang = pickLanguage(req);
 
   // The OAuth provider sending the browser back after a sign-in started on
   // the settings page; it carries its own single-use state, not a session.
@@ -1396,7 +1408,7 @@ async function route(
 
   if (options.adminAuth) {
     const settings = await routeAdmin(req, url, {
-      lang, nonce, client, version: webVersion(),
+      lang, nonce, client, version: webVersion(), theme,
       ...(signedIn ? { user: signedIn.user, session: signedIn.token } : {}),
     });
     if (settings) return settings;

@@ -106,6 +106,11 @@ export function embedded(req: IncomingMessage): boolean {
   return dest !== '' && dest !== 'empty' && dest !== 'document';
 }
 
+/** The saved light/dark choice, as the server can paint it before any script runs. */
+export function themeOf(req: IncomingMessage): 'light' | 'dark' {
+  return readCookie(req.headers.cookie, 'theme') === 'dark' ? 'dark' : 'light';
+}
+
 export function readCookie(header: string | undefined, name: string): string {
   for (const part of (header ?? '').split(';')) {
     const [key, ...rest] = part.trim().split('=');

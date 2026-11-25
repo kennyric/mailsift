@@ -748,7 +748,7 @@ body{min-height:100vh}
 .st-mb-note{font-size:12.5px;margin-top:3px}
 .st-mb-note.ok{color:var(--ok)}.st-mb-note.bad{color:var(--critical-text)}
 .st-mb-actions{display:flex;align-items:center;gap:6px}
-.st-users-main{max-width:820px}
+.st-users-main{max-width:820px;width:min(1080px,100%);margin:0 auto;padding:24px 16px 48px}
 .st-users{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
 .st-user{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .st-user.off{opacity:.66}

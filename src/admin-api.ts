@@ -24,6 +24,7 @@ import { scopeAllowsSending } from './smtp.js';
 import {
   ACCESS_TOKEN_KEYS, checkField, crossFieldProblems, FIELD_BY_KEY, SECRET_KEYS, words, type FieldProblem,
 } from './settings-catalog.js';
+import { DARK_BAR, LIGHT_BAR } from './web-styles.js';
 import { renderAuditPage, renderClaimPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
 import { otpauthUrl } from './services/totp.js';
 import { sendTestNotification } from './services/sink.js';
@@ -68,6 +69,8 @@ export interface AdminContext {
   nonce: string;
   client: string;
   version: string;
+  /** The saved light/dark choice, painted before any script runs. */
+  theme: 'light' | 'dark';
   /** The signed-in user, when this request carries a valid session. */
   user?: User;
   /** The raw session token behind that user, for this browser's own session operations. */
@@ -101,10 +104,13 @@ const ok = (value: unknown): WebResponse => noStore(json(200, value));
 const fail = (status: number, code: string, message: string, extra: Record<string, unknown> = {}): WebResponse =>
   noStore(json(status, { error: message, code, ...extra }));
 
-function htmlPage(body: string, nonce: string): WebResponse {
+function htmlPage(body: string, nonce: string, theme: 'light' | 'dark' = 'light'): WebResponse {
+  const painted = body
+    .replace(`<meta name="theme-color" content="${LIGHT_BAR}">`, `<meta name="theme-color" content="${theme === 'dark' ? DARK_BAR : LIGHT_BAR}">`)
+    .replace(/<html lang="([^"]+)">/, `<html lang="$1" data-theme="${theme}">`);
   return {
     status: 200,
-    body,
+    body: painted,
     contentType: 'text/html; charset=utf-8',
     cacheControl: 'no-store',
     headers: {
@@ -497,23 +503,23 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   const zh = lang === 'zh-CN';
 
   if (isPage) {
-    if (!ownerClaimed()) return htmlPage(renderClaimPage(lang, ctx.nonce, ctx.version), ctx.nonce);
+    if (!ownerClaimed()) return htmlPage(renderClaimPage(lang, ctx.nonce, ctx.version), ctx.nonce, ctx.theme);
     if (!ctx.user) return redirect(`/signin?next=${encodeURIComponent(path + url.search)}`);
     if (path === '/activity') {
       if (ctx.user.role !== 'owner') return redirect('/settings');
-      return htmlPage(renderAuditPage(lang, ctx.nonce, ctx.version, listAdminAudit(200)), ctx.nonce);
+      return htmlPage(renderAuditPage(lang, ctx.nonce, ctx.version, listAdminAudit(200)), ctx.nonce, ctx.theme);
     }
     if (path === '/users') {
       if (ctx.user.role !== 'owner') return redirect('/settings');
       const users = listUsers().map((user) => ({ ...user, mailboxCount: mailboxAddresses(user.id).length }));
-      return htmlPage(renderUsersPage(lang, ctx.nonce, ctx.version, users, MAX_USERS, ctx.user.id), ctx.nonce);
+      return htmlPage(renderUsersPage(lang, ctx.nonce, ctx.version, users, MAX_USERS, ctx.user.id), ctx.nonce, ctx.theme);
     }
     const doc = readSettingsFor(ctx.user.id);
     if (path === '/settings' && !doc.setupCompletedAt) return redirect('/setup');
     if (path === '/setup' && doc.setupCompletedAt) return redirect('/settings');
     return htmlPage(renderSettingsPage(
       lang, ctx.nonce, ctx.version, doc.setupCompletedAt ? 'settings' : 'setup', statePayload(req, doc, ctx.user), bootId(),
-    ), ctx.nonce);
+    ), ctx.nonce, ctx.theme);
   }
 
   // Claiming the server: the only API call without a session.
