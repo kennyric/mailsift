@@ -9,7 +9,9 @@
 import { mailboxAccount, setSettingsAccountsFor, type Account } from '../config.js';
 import { PROVIDER_PRESETS } from '../config.js';
 import { ACCESS_TOKEN_KEYS, FIELD_BY_KEY } from '../settings-catalog.js';
-import { listUsers, readSettingsFor, type MailboxSettings, type SettingsDocument } from './settings-store.js';
+import {
+  listUsers, OVERRIDABLE_KEYS, PERSONAL_KEYS, readSettingsFor, type MailboxSettings, type SettingsDocument,
+} from './settings-store.js';
 
 export type MailboxReadiness = 'ready' | 'disabled' | 'needs-authorization' | 'needs-password' | 'invalid';
 
@@ -111,7 +113,17 @@ export function runtimeFingerprintFor(
   const setup = [...users]
     .sort((a, b) => a.userID.localeCompare(b.userID))
     .map(({ userID, doc }) => [userID, Boolean(doc.setupCompletedAt)]);
-  return JSON.stringify({ values: sortedValues(shared), accounts, setup });
+  // Personal triage settings are loaded into each Watcher at startup too; a
+  // member changing their own rules, language or digest time must therefore
+  // restart the service just as a mailbox change does.
+  const personal = [...users]
+    .sort((a, b) => a.userID.localeCompare(b.userID))
+    .map(({ userID, doc }) => [userID, Object.fromEntries(
+      Object.entries(doc.values)
+        .filter(([key]) => PERSONAL_KEYS.has(key) || OVERRIDABLE_KEYS.has(key))
+        .sort(([a], [b]) => a.localeCompare(b)),
+    )]);
+  return JSON.stringify({ values: sortedValues(shared), accounts, setup, personal });
 }
 
 /** The legacy single-document fingerprint, used by unit tests. */

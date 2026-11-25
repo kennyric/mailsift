@@ -8,6 +8,7 @@
  * listed here cannot be saved.
  */
 import type { Language } from './web-strings.js';
+import { OVERRIDABLE_KEYS, PERSONAL_KEYS } from './services/settings-store.js';
 
 export type FieldType = 'text' | 'secret' | 'number' | 'boolean' | 'textarea' | 'select' | 'url' | 'list';
 
@@ -33,6 +34,13 @@ export interface SettingField {
   maxLength?: number;
   /** A secret that is a URL: validated as one, but never shown back. */
   url?: boolean;
+  /**
+   * Belongs to the signed-in person, not the instance. A member can edit these
+   * even while the rest of the section is shared and read-only.
+   */
+  personal?: boolean;
+  /** May be replaced per person, inheriting the shared value when blank. */
+  overridable?: boolean;
 }
 
 const w = (en: string, zh: string): Words => ({ en, zh });
@@ -72,11 +80,12 @@ export const SETTING_FIELDS: SettingField[] = [
   {
     key: 'LLM_MODEL', section: 'ai', type: 'text', defaultValue: 'deepseek-flash', maxLength: 200,
     label: w('Model', '模型'),
+    help: w('Leave this and the key blank to use the owner\'s model. If you choose another model, add your own API key below.', '留空则使用管理员的模型和 Key。若选择其他模型，必须在下方填写自己的 API Key。'),
   },
   {
     key: 'LLM_API_KEY', section: 'ai', type: 'secret',
     label: w('API key', 'API Key'),
-    help: w('Without a key, mail is judged by local rules and keywords only.', '不填写时只用本地规则和关键词判断。'),
+    help: w('Your own key is used only for your mail. Without any key, mail is judged by local rules and keywords only.', '自己的 Key 只用于你的邮件。完全没有 Key 时只用本地规则和关键词判断。'),
   },
   {
     key: 'LLM_OUTPUT_LANGUAGE', section: 'ai', type: 'select', defaultValue: 'en',
@@ -193,7 +202,8 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: 'MAX_MESSAGES_PER_LOOKBACK', section: 'schedule', type: 'number', defaultValue: '500', min: 1, max: 100000, advanced: true, label: w('Backfill batch size', '回溯批次上限') },
   { key: 'MAX_MESSAGES_PER_POLL', section: 'schedule', type: 'number', defaultValue: '200', min: 1, max: 100000, advanced: true, label: w('Messages per folder per check', '每个文件夹每次最多处理') },
   { key: 'MAX_MESSAGES_PER_POLL_TOTAL', section: 'schedule', type: 'number', defaultValue: '500', min: 1, max: 100000, advanced: true, label: w('Messages per check in total', '每次检查总共最多处理') },
-  { key: 'MAX_CONCURRENT_ACCOUNTS', section: 'schedule', type: 'number', defaultValue: '5', min: 1, max: 50, advanced: true, label: w('Mailboxes checked at once', '同时检查的邮箱数') },
+  { key: 'MAX_CONCURRENT_ACCOUNTS', section: 'schedule', type: 'number', defaultValue: '5', min: 1, max: 50, advanced: true, label: w('Mailboxes checked at once, per person', '每个人同时检查的邮箱数') },
+  { key: 'MAX_CONCURRENT_ACCOUNTS_TOTAL', section: 'schedule', type: 'number', defaultValue: '8', min: 1, max: 100, advanced: true, label: w('Mailboxes checked at once, whole instance', '整个实例同时检查的邮箱数') },
   { key: 'ACCOUNT_ALERT_AFTER_FAILURES', section: 'schedule', type: 'number', defaultValue: '2', min: 1, max: 100, advanced: true, label: w('Alert after failed checks in a row', '连续失败多少次后告警') },
   { key: 'ACCOUNT_ALERT_COOLDOWN_SECONDS', section: 'schedule', type: 'number', defaultValue: '21600', min: 60, max: 604800, advanced: true, label: w('Repeat a mailbox alert after (seconds)', '同一故障重复告警间隔（秒）') },
 
@@ -262,6 +272,13 @@ export const SECTION_TITLES: Record<SectionId, Words> = {
   access: w('Access', '访问与凭证'),
   advanced: w('Advanced', '高级'),
 };
+
+// Mark the per-person fields once, in one place, so a new personal key cannot
+// forget its badge in the page.
+for (const field of SETTING_FIELDS) {
+  if (PERSONAL_KEYS.has(field.key)) field.personal = true;
+  if (OVERRIDABLE_KEYS.has(field.key)) field.overridable = true;
+}
 
 export const FIELD_BY_KEY = new Map(SETTING_FIELDS.map((field) => [field.key, field]));
 

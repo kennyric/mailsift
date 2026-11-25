@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily mailsift encrypted backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

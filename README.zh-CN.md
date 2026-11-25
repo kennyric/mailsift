@@ -41,13 +41,15 @@ ssh -N -L 8410:127.0.0.1:8410 you@your-server
 
 Gmail 和 Outlook 通过 OAuth 登录，需要你在 Google 或 Microsoft 注册一次自己的 OAuth 应用，见 [Gmail and Outlook sign-in](docs/deployment.md#gmail-and-outlook-sign-in)。个人 Gmail 也可以改用应用专用密码，或者把 Gmail 整箱转发到一个用密码登录的邮箱（见 [Forwarding between mailboxes](docs/configuration.md#forwarding-between-mailboxes)）。这两件事的中文详解在讨论区：[#46 Gmail / Outlook 的 OAuth 授权](../../discussions/46) 和 [#47 邮箱转发](../../discussions/47)。它们写于 0.1.x，其中的 `.env` 和命令行步骤现在都在“设置”里完成，Google 和 Microsoft 一侧的步骤仍然适用。
 
-## 设置
+## 多人和设置
 
-其余一切都在“设置”里（网页右上角的齿轮）：邮箱、AI 模型、通知、分诊规则、检查频率与每日摘要、隐私与保留、网页邮件、MCP 令牌和各类上限。保存时会校验，AI 模型和通知可以在保存前测试；密钥保存后不会再显示。需要重启才能生效的修改会在当前轮询结束后自动重启服务。设置和凭证加密保存在 Docker 数据卷里，备份时请两个卷一起备份。详见 [Configuration](docs/configuration.md)。
+一个实例可以供多人使用：每个人有自己的用户名、邮箱、待处理队列、通知和 MCP 令牌。管理员在 **设置 → 用户** 里添加成员；共享的 AI Key、检查频率和隐私开关仍由管理员管理。成员也可以使用自己的 API Key 和模型；但选择自己的模型时必须同时填写自己的 Key，不能拿管理员的 Key 去调用别的模型。详见 [Multiple people](docs/multi-user.md)。
+
+其余一切都在“设置”里（网页右上角的齿轮）：邮箱、AI 模型、通知、分诊规则、检查频率与每日摘要、隐私与保留、网页邮件、MCP 令牌和各类上限。保存时会校验，AI 模型和通知可以在保存前测试；密钥保存后不会再显示。需要重启才能生效的修改会在当前轮询结束后自动重启服务。设置和凭证加密保存在 Docker 数据卷里，请用 `scripts/backup.sh` 一起备份。详见 [Configuration](docs/configuration.md)。
 
 ## Web 视图
 
-打开页面，用管理员密码登录。
+打开页面，用用户名和密码登录。
 
 - **待处理**排在最前：被判为重要、你还没处理的邮件。点一下圆环、向右滑走、稍后提醒（到了你定的时间会回来，并通知你），或者点开它。
 - **阅读**邮件的原貌。远程图片等你同意才加载，跟踪像素直接丢弃，显示地址与实际去向不一致的链接会被标出，并显示邮箱服务商对发件人的验证结果。

@@ -115,12 +115,13 @@ export class WebhookSink implements Sink {
 
   async push(message: MailMessage, result: TriageResult): Promise<PushOutcome> {
     if ((process.env.DRY_RUN ?? '').toLowerCase() === 'true') {
-      log.info(`[dry-run] Would send to generic webhook | ${result.importance} | ${message.subject}`);
+      log.info(`[dry-run] Would send to generic webhook | ${result.importance} | ${message.accountLabel || 'mail'}`);
+      log.debug(`[dry-run] Webhook subject: ${message.subject}`);
       return 'delivered';
     }
     if (!this.configured) return 'declined';
 
-    const delivered = await deliverWithRetry(`Generic webhook | ${message.subject}`, this.retry, async () => {
+    const delivered = await deliverWithRetry(`Generic webhook | ${message.accountLabel || 'mail'} | ${result.importance}`, this.retry, async () => {
       try {
         const response = await fetch(this.endpoint, {
           method: 'POST',
@@ -134,7 +135,8 @@ export class WebhookSink implements Sink {
         if (!response.ok) {
           return { delivered: false, retryable: isRetryableStatus(response.status), detail: `HTTP ${response.status}` };
         }
-        log.info(`Generic webhook delivered | ${result.importance} | ${message.subject}`);
+        log.info(`Generic webhook delivered | ${result.importance} | ${message.accountLabel || 'mail'}`);
+        log.debug(`Generic webhook subject: ${message.subject}`);
         return { delivered: true, retryable: false, detail: '' };
       } catch (error) {
         return { delivered: false, retryable: true, detail: String(error) };
@@ -172,9 +174,28 @@ export class CompositeSink implements Sink {
 }
 
 export function buildSink(): Sink {
+  return buildSinkFor({}, true);
+}
+
+/**
+ * Build the outputs for one person. Personal values win over the shared
+ * environment; for a member the environment is not a fallback at all, so a
+ * member's mail never reaches the owner's Feishu bot or webhook by accident.
+ */
+export function buildSinkFor(values: Record<string, string | undefined>, fallbackToEnv = true): Sink {
+  const pick = (key: string): string =>
+    values[key]?.trim() || (fallbackToEnv ? process.env[key]?.trim() : '') || '';
   const sinks: Sink[] = [];
-  if (process.env.FEISHU_WEBHOOK_URL?.trim()) sinks.push(new FeishuSink());
-  if (webhookEndpoint()) sinks.push(new WebhookSink());
+  const feishu = pick('FEISHU_WEBHOOK_URL');
+  if (feishu) {
+    sinks.push(new FeishuSink(feishu, pick('FEISHU_WEBHOOK_SECRET'), pick('FEISHU_MIN_IMPORTANCE') || pick('PUSH_MIN_IMPORTANCE') || 'warning'));
+  }
+  const webhook = pick('WEBHOOK_URL') || (fallbackToEnv ? (() => {
+    const legacy = process.env.WEBHOOKWISE_URL?.trim();
+    if (!legacy) return '';
+    return `${legacy.replace(/\/$/, '')}/api/v1/webhook/${process.env.WEBHOOKWISE_SOURCE?.trim() || 'mailsift'}`;
+  })() : '');
+  if (webhook) sinks.push(new WebhookSink(webhook, pick('WEBHOOK_TOKEN')));
   return sinks.length === 1 ? sinks[0]! : new CompositeSink(sinks);
 }
 

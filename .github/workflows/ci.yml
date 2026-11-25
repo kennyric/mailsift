@@ -1,21 +1,26 @@
 name: CI
 
 on:
-  # Branch pushes are covered by pull_request once a PR is open; listing every
-  # branch here as well ran the whole suite twice for each push.
+  # A fork often pushes a feature branch without opening a PR; test the
+  # maintenance branch directly as well as main.
   push:
-    branches: [main]
+    branches: [main, 'kenny/**']
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # node:sqlite requires >= 22.5. The image runs Node 26; test both ends
+        # so an API that changed between them is caught here, not in production.
+        node-version: ['22', '26']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          # node:sqlite requires >= 22.5.
-          node-version: '22'
+          node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
       - run: npm_config_allow_scripts='' npm audit --omit=dev --audit-level=high

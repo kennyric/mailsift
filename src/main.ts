@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util';
 import { ConfigError, loadConfig, loadConfigFor, setSettingsAccountsFor } from './config.js';
 import { authorizedUsernames } from './imap/auth.js';
 import { StateStore, storePathFor } from './services/state.js';
-import { buildSink, CompositeSink, usesLegacyWebhookNames, webhookEndpoint, webhookToken, WebhookSink } from './services/sink.js';
+import { buildSink, buildSinkFor, usesLegacyWebhookNames, webhookEndpoint, webhookToken, WebhookSink } from './services/sink.js';
 import { deciderConfigured } from './services/decider.js';
 import {
   resolveLlmBaseUrl, spamBonusWarning, suppressSelfForwards, unanchoredSenderRules,
@@ -30,8 +30,11 @@ import { sentLookbackDays, sentMailEnabled } from './imap/sent.js';
 import { flushHeartbeats, heartbeatProblem, heartbeatUrl } from './services/heartbeat.js';
 import { getLogger } from './logger.js';
 import { metrics } from './metrics.js';
+import { llmConfigForUser } from './services/llm-config.js';
 import { startMcpHttp } from './mcp.js';
-import { issueSetupCode, listUsers, ownerClaimed, readSettings, readSettingsFor, resetAdmin, type User } from './services/settings-store.js';
+import {
+  issueSetupCode, listUsers, ownerClaimed, pruneAdminAudit, readSettings, readSettingsFor, resetAdmin, type User,
+} from './services/settings-store.js';
 import { mailboxReadiness, readyAccounts } from './services/settings-runtime.js';
 import {
   onRestartRequested, RESTART_EXIT_CODE, restartRequested, setServerMode, supervised, type ServerMode,
@@ -248,8 +251,13 @@ function recover(onlyUser?: string): number {
 async function runForever(runtimes: UserRuntime[]): Promise<void> {
   const interval = Number(process.env.POLL_INTERVAL_SECONDS ?? 300) * 1000;
   log.info(`mailsift started; poll interval ${interval / 1000}s; ${runtimes.length} mailbox group(s)`);
+  const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  // A little jitter and a staggered first poll keep twenty people from opening
+  // every IMAP connection on the same second after a restart.
+  const jitter = (): number => Math.round((Math.random() - 0.5) * Math.min(interval * 0.2, 120_000));
 
-  await Promise.all(runtimes.map(async ({ user, coordinator }) => {
+  await Promise.all(runtimes.map(async ({ user, coordinator }, index) => {
+    await wait(Math.min(interval, 30_000) * (index / Math.max(runtimes.length, 1)) + Math.random() * 1_000);
     while (!stopping) {
       try {
         await coordinator.now();
@@ -258,7 +266,7 @@ async function runForever(runtimes: UserRuntime[]): Promise<void> {
         log.error(`[${user.username}] poll failed: ${error}`);
       }
       if (stopping) break;
-      await coordinator.wait(interval);
+      await coordinator.wait(Math.max(5_000, interval + jitter()));
     }
   }));
   log.info('Exited');
@@ -333,6 +341,7 @@ function announceSetup(code: string | undefined, setupFinished: boolean): void {
  * finished. A settings change ends this function with RESTART_EXIT_CODE.
  */
 async function serve(): Promise<number> {
+  try { pruneAdminAudit(365); } catch { /* the audit is not the service */ }
   const authorized = authorizedUsernames();
   const users = listUsers().filter((user) => !user.disabled);
   let ready = 0;
@@ -401,8 +410,12 @@ async function buildRuntimes(onlyUser?: string): Promise<UserRuntime[]> {
     try {
       const config = loadConfigFor(user.id);
       const store = new StateStore(storePathFor(user.id));
-      const sink = user.role === 'owner' ? buildSink() : new CompositeSink([]);
-      const watcher = new Watcher(config, store, sink);
+      const sink = buildSinkFor(doc.values, user.role === 'owner');
+      const watcher = new Watcher(config, store, sink, {
+        values: doc.values,
+        member: user.role === 'member',
+        llm: llmConfigForUser(user.id),
+      });
       const coordinator = new PollCoordinator(() => watcher.pollOnce());
       const idle = idleEnabled()
         ? new IdleSupervisor(config.accounts, async (account, folder, client) => {

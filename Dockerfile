@@ -1,8 +1,8 @@
 # ---- Build ----
-# Run the build stage on the builder architecture (--platform=$BUILDPLATFORM).
-# This avoids QEMU SIGILL failures during cross-architecture npm installs.
-# Runtime dependencies are pure JavaScript, so copying them across architectures is safe.
-FROM --platform=$BUILDPLATFORM node:26-alpine AS build
+# No `--platform=$BUILDPLATFORM`: the plain legacy builder used on a
+# single-architecture host does not understand it, and the runtime
+# dependencies are pure JavaScript, so a cross-built image is safe anyway.
+FROM node:26-alpine AS build
 WORKDIR /app
 
 COPY package*.json tsconfig.json ./

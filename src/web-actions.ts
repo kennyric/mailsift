@@ -45,6 +45,7 @@ import {
 import {
   askMail, AssistantError, assistantConfigured, draftReply, type AskAnswer, type DraftInput,
 } from './services/assistant.js';
+import { llmConfigForUser, withLlmConfig } from './services/llm-config.js';
 import { sendTestPush, vapidKeys } from './services/push-dispatcher.js';
 import { StateStore, storePathFor, type MailRow } from './services/state.js';
 import { listUsers } from './services/settings-store.js';
@@ -119,9 +120,10 @@ export const defaultBackend: WebBackend = {
   appendSent: appendToSent,
   savesSentCopy,
   sending: sendingStatus,
-  assistant: assistantConfigured,
-  ask: (store, question, options) => askMail(store, question, options),
-  draft: (input) => draftReply(input),
+  assistant: () => withLlmConfig(llmConfigForUser(currentUserID()), () => assistantConfigured()),
+  ask: (store, question, options) =>
+    withLlmConfig(llmConfigForUser(currentUserID()), () => askMail(store, question, options)),
+  draft: (input) => withLlmConfig(llmConfigForUser(currentUserID()), () => draftReply(input)),
   // On a handle of its own: a slow push service can outlast the request, and
   // what it finally says (delivered, or gone) still has to be written down.
   testPush: async (_store, endpoint) => {

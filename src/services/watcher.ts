@@ -33,6 +33,7 @@ import type { Sink } from './sink.js';
 import type { SentCursorRow, SentRecord, StateStore } from './state.js';
 import { getLogger } from '../logger.js';
 import { metrics } from '../metrics.js';
+import { currentLlmConfig, withLlmConfig, type LlmConfig } from './llm-config.js';
 
 const log = getLogger('watcher');
 
@@ -105,6 +106,45 @@ interface Collected {
   sent?: SentBatch[];
 }
 
+/**
+ * One account-connection budget for the whole process.
+ *
+ * Each user's watcher has its own MAX_CONCURRENT_ACCOUNTS, which is right for
+ * one mailbox group and wrong for twenty: twenty loops each opening five
+ * connections is a hundred sign-ins at once. The gate below is shared, so
+ * adding people does not multiply the load on providers.
+ */
+let activeAccountSlots = 0;
+const accountSlotWaiters: Array<() => void> = [];
+
+function totalAccountLimit(): number {
+  const value = Number(process.env.MAX_CONCURRENT_ACCOUNTS_TOTAL ?? 8);
+  return Number.isFinite(value) && value >= 1 ? Math.max(1, Math.floor(value)) : 8;
+}
+
+async function withAccountSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeAccountSlots >= totalAccountLimit()) {
+    await new Promise<void>((resolve) => accountSlotWaiters.push(resolve));
+  }
+  activeAccountSlots += 1;
+  try {
+    return await work();
+  } finally {
+    activeAccountSlots = Math.max(0, activeAccountSlots - 1);
+    const next = accountSlotWaiters.shift();
+    if (next) next();
+  }
+}
+
+export interface WatcherProfile {
+  /** This person's effective settings (shared plus their personal overrides). */
+  values: Record<string, string>;
+  /** A member must not inherit the owner's sender rules or "About you" text. */
+  member: boolean;
+  /** The model and key this person's mail may use. */
+  llm?: LlmConfig;
+}
+
 export class Watcher {
   /** Tail of the exclusive-section chain; see exclusive(). */
   private chain: Promise<unknown> = Promise.resolve();
@@ -113,6 +153,7 @@ export class Watcher {
     readonly config: WatchConfig,
     readonly state: StateStore,
     readonly sink: Sink,
+    readonly profile: WatcherProfile = { values: {}, member: false },
   ) {}
 
   /**
@@ -225,7 +266,7 @@ export class Watcher {
         const account = queue.shift();
         if (!account) return;
         try {
-          const result = await this.collectAccount(account, budget);
+          const result = await withAccountSlot(() => this.collectAccount(account, budget));
           const failures = result.failures ?? [];
           if (failures.length === 0) stats.accountsOk += 1;
           else {
@@ -283,11 +324,46 @@ export class Watcher {
 
   private triageRules() {
     const feedback = this.state.feedbackRuleHints(2);
+    const values = this.profile.values;
+    const personal = (key: string): string[] => (values[key] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    // A member's mail is not the owner's: their own rules and context replace
+    // the shared ones instead of being added to them. For the owner the two are
+    // the same person, so the stored values are already merged in `values`.
+    const rules = this.profile.member
+      ? {
+          ...this.config.rules,
+          alwaysImportant: personal('MAIL_ALWAYS_IMPORTANT'),
+          neverImportant: personal('MAIL_NEVER_IMPORTANT'),
+          context: values['MAIL_CONTEXT'] ?? '',
+        }
+      : this.config.rules;
     return {
-      ...this.config.rules,
+      ...rules,
       feedbackAlwaysImportant: feedback.alwaysImportant,
       feedbackNeverImportant: feedback.neverImportant,
       selfAddresses: suppressSelfForwards() ? this.config.accounts.map((a) => a.username) : [],
+    };
+  }
+
+  /** Put one LLM batch on this person's daily counter and the instance metrics. */
+  private noteLlmUsage(usage: { total: number; costTicks?: number }): void {
+    try {
+      this.state.recordLlmUsage(usage);
+    } catch (error) {
+      log.warn(`Could not record LLM usage: ${String(error).slice(0, 120)}`);
+    }
+    metrics.addCounter('mailsift.llm.tokens', Math.max(0, usage.total));
+    if (usage.costTicks) metrics.addCounter('mailsift.llm.cost_ticks', usage.costTicks);
+  }
+
+  /** This person's digest schedule, or the instance default when they have not chosen one. */
+  private digestSchedule(): digest.DigestSchedule {
+    const values = this.profile.values;
+    const rawHour = values['DIGEST_HOUR'] ?? '';
+    const hour = rawHour ? Number(rawHour) : Number.NaN;
+    return {
+      ...(Number.isInteger(hour) && hour >= 0 && hour <= 23 ? { hour } : {}),
+      ...(values['DIGEST_ENABLED'] !== undefined ? { enabled: values['DIGEST_ENABLED'] !== 'false' } : {}),
     };
   }
 
@@ -442,7 +518,10 @@ export class Watcher {
     });
 
     const llmOutcomes: Array<unknown | null> = [];
-    const results = await triage(messages, rules, (error) => llmOutcomes.push(error));
+    const results = await withLlmConfig(this.profile.llm ?? currentLlmConfig(), () => triage(
+      messages, rules, (error) => llmOutcomes.push(error), undefined, undefined,
+      this.profile.values['LLM_OUTPUT_LANGUAGE'], (usage) => this.noteLlmUsage(usage),
+    ));
     for (const outcome of llmOutcomes) {
       try {
         if (outcome) await health.recordLlmFailure(this.state, this.sink, outcome);
@@ -452,9 +531,9 @@ export class Watcher {
       }
     }
 
-    const pushLimit = pushThreshold();
+    const pushLimit = pushThreshold(this.profile.values['PUSH_MIN_IMPORTANCE']);
     const digestThreshold =
-      IMPORTANCE_RANK[(process.env.DIGEST_MIN_IMPORTANCE ?? 'info') as Importance] ?? 0;
+      IMPORTANCE_RANK[(this.profile.values['DIGEST_MIN_IMPORTANCE'] ?? process.env.DIGEST_MIN_IMPORTANCE ?? 'info') as Importance] ?? 0;
     for (const [index, [message, result]] of results.entries()) {
       // A failed retry leaves the original fallback decision and digest entry
       // untouched so a later recovery can try it again. Mail handled locally
@@ -522,14 +601,16 @@ export class Watcher {
           this.state.recordOutcome(key, result.importance, false, fields);
           this.state.upsertDigest(key, digest.toDigestItem(safeMessage, result));
           stats.queued += 1;
-          log.info(`Recovery push was declined; kept the updated digest entry: ${safeMessage.subject}`);
+          log.info(`Recovery push was declined; kept the updated digest entry | ${result.importance} | ${safeMessage.accountLabel || 'mail'}`);
+          log.debug(`Recovery digest subject: ${safeMessage.subject}`);
         } else {
           this.state.markNotificationFailed(key, 'sink delivery failed');
           this.state.recordOutcome(key, result.importance, false, fields);
           this.state.upsertDigest(key, digest.toDigestItem(safeMessage, result));
           metrics.addCounter('mailsift.notifications.failed', 1, { channel: 'recovery_retriage' });
           stats.queued += 1;
-          log.warn(`Recovery push failed; kept the updated digest entry: ${safeMessage.subject}`);
+          log.warn(`Recovery push failed; kept the updated digest entry | ${result.importance} | ${safeMessage.accountLabel || 'mail'}`);
+          log.debug(`Recovery digest subject: ${safeMessage.subject}`);
         }
         continue;
       }
@@ -559,9 +640,9 @@ export class Watcher {
   async dispatch(messages: MailMessage[], stats: PollStats): Promise<void> {
     if (messages.length === 0) return;
 
-    const pushLimit = pushThreshold();
+    const pushLimit = pushThreshold(this.profile.values['PUSH_MIN_IMPORTANCE']);
     const digestThreshold =
-      IMPORTANCE_RANK[(process.env.DIGEST_MIN_IMPORTANCE ?? 'info') as Importance] ?? 0;
+      IMPORTANCE_RANK[(this.profile.values['DIGEST_MIN_IMPORTANCE'] ?? process.env.DIGEST_MIN_IMPORTANCE ?? 'info') as Importance] ?? 0;
 
     const wasUnavailable = Boolean(this.state.getMeta(health.LLM_FAIL_COUNT_KEY));
     const llmOutcomes: Array<unknown | null> = [];
@@ -571,7 +652,10 @@ export class Watcher {
 
     const rules = this.triageRules();
     const threadContexts = this.triageThreadContexts(messages);
-    for (const [message, result] of await triage(messages, rules, onLlmResult, threadContexts, onDeciderResult)) {
+    for (const [message, result] of await withLlmConfig(this.profile.llm ?? currentLlmConfig(), () => triage(
+      messages, rules, onLlmResult, threadContexts, onDeciderResult, this.profile.values['LLM_OUTPUT_LANGUAGE'],
+      (usage) => this.noteLlmUsage(usage),
+    ))) {
       metrics.addCounter('mailsift.messages.triaged', 1, {
         provider: message.provider,
         importance: result.importance,
@@ -620,11 +704,13 @@ export class Watcher {
           // No retry can change an output's own policy, so drop the queued copy
           // rather than leaving a notification that can never be delivered.
           this.state.dropNotification(key);
-          log.info(`Every output declined the message; queued for digest: ${safeMessage.subject}`);
+          log.info(`Every output declined the message; queued for digest | ${result.importance} | ${safeMessage.accountLabel || 'mail'}`);
+          log.debug(`Queued digest subject: ${safeMessage.subject}`);
         } else {
           this.state.markNotificationFailed(key, 'sink delivery failed');
           metrics.addCounter('mailsift.notifications.failed', 1, { channel: 'realtime' });
-          log.warn(`Delivery failed; queued for digest: ${safeMessage.subject}`);
+          log.warn(`Delivery failed; queued for digest | ${result.importance} | ${safeMessage.accountLabel || 'mail'}`);
+          log.debug(`Queued digest subject: ${safeMessage.subject}`);
         }
         this.state.recordOutcome(key, result.importance, outcome === 'delivered', fields);
         if (outcome === 'delivered') continue;
@@ -690,7 +776,10 @@ export class Watcher {
   private answeredAlready(key: string, subject: string, withheld: boolean, messageId?: string): boolean {
     try {
       const answered = this.state.answerStored(key, this.ownAddresses(), withheld, messageId);
-      if (answered) log.info(`Already answered from another client; dealt with, not notified: ${subject}`);
+      if (answered) {
+        log.info('Already answered from another client; dealt with, not notified');
+        log.debug(`Answered message subject: ${subject}`);
+      }
       return answered;
     } catch (error) {
       log.warn(`Checking for an answer in Sent failed (the message is handled as usual): ${String(error).slice(0, 160)}`);
@@ -745,6 +834,9 @@ export class Watcher {
       const removed = this.state.prune(keepDays);
       this.state.setMeta(PRUNE_KEY, today);
       if (removed) log.info(`Pruned ${removed} records older than ${keepDays} days`);
+      // Retention deletes rows but SQLite keeps the pages. Compacting once a
+      // week keeps every backup and every user's disk use honest.
+      try { this.state.compact(today); } catch (error) { log.debug(`State compaction skipped: ${String(error).slice(0, 120)}`); }
     } catch (error) {
       log.warn(`State pruning failed (poll continues): ${error}`);
     }
@@ -795,7 +887,9 @@ export class Watcher {
 
       // Without an external sink the digest remains available from the local
       // triaged mail and can be delivered if an output is added later.
-      if (this.sink.configured && digest.shouldSend(this.state)) await digest.sendDigest(this.state, this.sink);
+      if (this.sink.configured && digest.shouldSend(this.state, new Date(), this.digestSchedule())) {
+        await digest.sendDigest(this.state, this.sink);
+      }
 
       this.maybePrune();
 

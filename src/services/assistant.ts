@@ -40,6 +40,7 @@ import { aiGatewayHeaders } from './decider.js';
 import { redactForLlm } from './redact.js';
 import type { MailRow, StateStore } from './state.js';
 import { resolveLlmBaseUrl } from './triage.js';
+import { currentLlmConfig } from './llm-config.js';
 
 const log = getLogger('assistant');
 
@@ -92,9 +93,10 @@ const MAX_DRAFT_CHARS = 6000;
 
 /** True when an LLM is configured; the page hides the AI controls otherwise. */
 export function assistantConfigured(): boolean {
-  if (!process.env.LLM_API_KEY?.trim()) return false;
+  const config = currentLlmConfig();
+  if (!config.apiKey) return false;
   try {
-    resolveLlmBaseUrl();
+    resolveLlmBaseUrl(config.source);
     return true;
   } catch {
     // An unknown LLM_PROVIDER: triage falls back to keywords, and there is no
@@ -118,10 +120,11 @@ function safe(value: string): string {
  * answer is prose, and no retry: the reader can ask again.
  */
 async function complete(system: string, user: string, fetchImpl: Fetch): Promise<{ content: string; tokens: number }> {
-  if (!process.env.LLM_API_KEY?.trim()) throw new AssistantError('unavailable', 'no LLM is configured');
+  const config = currentLlmConfig();
+  if (!config.apiKey) throw new AssistantError('unavailable', 'no LLM is configured');
   let endpoint: string;
   try {
-    endpoint = `${resolveLlmBaseUrl().replace(/\/$/, '')}/chat/completions`;
+    endpoint = `${resolveLlmBaseUrl(config.source).replace(/\/$/, '')}/chat/completions`;
   } catch {
     throw new AssistantError('unavailable', 'the LLM provider is not configured correctly');
   }
@@ -131,12 +134,12 @@ async function complete(system: string, user: string, fetchImpl: Fetch): Promise
     response = await fetchImpl(endpoint, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${process.env.LLM_API_KEY ?? ''}`,
+        Authorization: `Bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
         ...aiGatewayHeaders(),
       },
       body: JSON.stringify({
-        model: process.env.LLM_MODEL ?? 'deepseek-flash',
+        model: config.model,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },

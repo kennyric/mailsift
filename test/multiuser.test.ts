@@ -10,9 +10,11 @@ import { enterUser } from '../src/web-actions.js';
 import { StateStore, storePathFor } from '../src/services/state.js';
 import { setSettingsAccountsFor, type Account } from '../src/config.js';
 import {
-  claimOwner, closeSettingsStore, createUser, issueSetupCode, listUsers, MailboxConflictError,
-  newMailboxId, readSettingsFor, SharedSettingsDenied, signIn, updateSettingsFor, type User,
+  claimOwner, closeSettingsStore, createUser, issueSetupCode, listUsers, LlmOverrideDenied,
+  MailboxConflictError, newMailboxId, readLlmOverrides, readSettingsFor, SharedSettingsDenied,
+  signIn, updateSettingsFor, type User,
 } from '../src/services/settings-store.js';
+import { llmConfigForUser } from '../src/services/llm-config.js';
 
 let dir: string;
 let owner: User;
@@ -84,18 +86,47 @@ describe('per-user settings', { timeout: 30_000 }, () => {
     expect(readSettingsFor(member.id).mailboxes.map((m) => m.username)).toEqual(['friend@example.com']);
   });
 
-  it('shares the scalar settings but refuses a member writing them', () => {
+  it('keeps personal triage settings apart and refuses a member writing shared ones', () => {
+    // A digest hour is personal now: the owner's choice is not imposed on a member.
     updateSettingsFor(owner.id, (doc) => { doc.values['DIGEST_HOUR'] = '21'; });
-    expect(readSettingsFor(member.id).values['DIGEST_HOUR']).toBe('21');
-    expect(() => updateSettingsFor(member.id, (doc) => { doc.values['DIGEST_HOUR'] = '7'; }))
-      .toThrow(SharedSettingsDenied);
+    expect(readSettingsFor(member.id).values['DIGEST_HOUR']).toBeUndefined();
+    updateSettingsFor(member.id, (doc) => { doc.values['DIGEST_HOUR'] = '7'; });
+    expect(readSettingsFor(member.id).values['DIGEST_HOUR']).toBe('7');
     expect(readSettingsFor(owner.id).values['DIGEST_HOUR']).toBe('21');
+    // The poll interval is still the instance's.
+    expect(() => updateSettingsFor(member.id, (doc) => { doc.values['POLL_INTERVAL_SECONDS'] = '60'; }))
+      .toThrow(SharedSettingsDenied);
+    expect(readSettingsFor(owner.id).values['POLL_INTERVAL_SECONDS']).toBeUndefined();
   });
 
   it('refuses the same address in two accounts', () => {
     addMailbox(owner.id, 'shared@example.com');
     expect(() => addMailbox(member.id, 'shared@example.com')).toThrow(MailboxConflictError);
     expect(readSettingsFor(member.id).mailboxes).toEqual([]);
+  });
+
+  it('lets a member use the admin model and key, but never an admin key with a personal model', () => {
+    updateSettingsFor(owner.id, (doc) => {
+      doc.values['LLM_PROVIDER'] = 'deepseek';
+      doc.values['LLM_MODEL'] = 'admin-model';
+      doc.values['LLM_API_KEY'] = 'admin-key';
+    });
+    // No personal choice: the owner's model and key together.
+    expect(llmConfigForUser(member.id)).toMatchObject({ apiKey: 'admin-key', model: 'admin-model' });
+
+    // A model without a key would spend the admin key on another model.
+    expect(() => updateSettingsFor(member.id, (doc) => { doc.values['LLM_MODEL'] = 'member-model'; }))
+      .toThrow(LlmOverrideDenied);
+    expect(readLlmOverrides(member.id)).toEqual({});
+
+    // The member's own key and model are theirs alone.
+    updateSettingsFor(member.id, (doc) => {
+      doc.values['LLM_API_KEY'] = 'member-key';
+      doc.values['LLM_MODEL'] = 'member-model';
+    });
+    expect(readLlmOverrides(member.id)).toMatchObject({ LLM_API_KEY: 'member-key', LLM_MODEL: 'member-model' });
+    expect(llmConfigForUser(member.id)).toMatchObject({ apiKey: 'member-key', model: 'member-model' });
+    expect(llmConfigForUser(owner.id)).toMatchObject({ apiKey: 'admin-key', model: 'admin-model' });
   });
 
   it('gives every user a database of their own, and the owner keeps the old path', () => {

@@ -1,0 +1,13 @@
+[Unit]
+Description=mailsift encrypted backup
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kenny/mailsift
+# Run as the account that can use Docker. Set BACKUP_GPG_RECIPIENT with
+# `systemctl edit mailsift-backup` so the archive is encrypted.
+Environment=BACKUP_DIR=/home/kenny/mailsift/backups
+Environment=BACKUP_KEEP=14
+ExecStart=/home/kenny/mailsift/scripts/backup.sh

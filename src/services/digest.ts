@@ -77,7 +77,13 @@ const DEFAULT_DIGEST_HOUR = 9;
  * reported by --check, so the page never promises an hour the scheduler does
  * not use.
  */
-export function digestHour(): { hour: number; invalid?: string } {
+export interface DigestSchedule {
+  enabled?: boolean;
+  hour?: number;
+}
+
+export function digestHour(schedule: DigestSchedule = {}): { hour: number; invalid?: string } {
+  if (schedule.hour !== undefined) return { hour: schedule.hour };
   const raw = process.env.DIGEST_HOUR?.trim();
   if (!raw) return { hour: DEFAULT_DIGEST_HOUR };
   const value = Number(raw);
@@ -86,7 +92,8 @@ export function digestHour(): { hour: number; invalid?: string } {
     : { hour: DEFAULT_DIGEST_HOUR, invalid: raw };
 }
 
-function digestEnabled(): boolean {
+function digestEnabled(schedule: DigestSchedule = {}): boolean {
+  if (schedule.enabled !== undefined) return schedule.enabled;
   return (process.env.DIGEST_ENABLED ?? 'true').toLowerCase() !== 'false';
 }
 
@@ -384,9 +391,9 @@ function markdownText(value: string): string {
   return value.replace(/[\\`*_~\[\]]/g, '\\$&');
 }
 
-export function shouldSend(state: StateStore, at: Date = new Date()): boolean {
-  if (!digestEnabled()) return false;
-  if (at.getHours() < digestHour().hour) return false;
+export function shouldSend(state: StateStore, at: Date = new Date(), schedule: DigestSchedule = {}): boolean {
+  if (!digestEnabled(schedule)) return false;
+  if (at.getHours() < digestHour(schedule).hour) return false;
   return !sentToday(state, at);
 }
 
@@ -396,9 +403,9 @@ export function shouldSend(state: StateStore, at: Date = new Date()): boolean {
  * A digest already due but not yet sent reports today's hour, which is when it
  * became due.
  */
-export function nextDigestAt(state: StateStore, now: Date = new Date()): Date | null {
-  if (!digestEnabled()) return null;
-  const { hour } = digestHour();
+export function nextDigestAt(state: StateStore, now: Date = new Date(), schedule: DigestSchedule = {}): Date | null {
+  if (!digestEnabled(schedule)) return null;
+  const { hour } = digestHour(schedule);
   const at = new Date(now);
   at.setHours(hour, 0, 0, 0);
   if (!sentToday(state, now)) return at;

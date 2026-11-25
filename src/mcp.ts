@@ -16,7 +16,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { CallToolRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { loadConfig } from './config.js';
+import { loadConfigForCaller } from './config.js';
 import { McpToolError, toResourceError, toToolError } from './mcp-errors.js';
 import { mailRecordToMarkdown, threadToMarkdown } from './mcp-markdown.js';
 import { registerPrompts } from './mcp-prompts.js';
@@ -37,14 +37,14 @@ import {
 import { retryAttempts } from './services/delivery.js';
 import { HEARTBEAT_KEY, IDLE_WAKE_KEY, type PollStats } from './services/watcher.js';
 import { PushDispatcher } from './services/push-dispatcher.js';
-import { listUsers, userCredentialMarks } from './services/settings-store.js';
+import { listUsers, resolveUserMcpToken, userCredentialMarks } from './services/settings-store.js';
 import { publicAsset, routeWeb, webRateLimited, webUiEnabled } from './web.js';
 import { userSessionOf } from './admin-api.js';
 import { APP_VERSION } from './version.js';
 import { insecureChannelResponse, requestChannel } from './web-access.js';
 import { bootId, serverMode, startedAt } from './services/runtime-control.js';
 import {
-  actOnMail, asWriteSession, awaitEarlierSend, configuredAccounts, defaultBackend, earlierSend, forwardDraft, letterText,
+  actOnMail, asWriteSession, awaitEarlierSend, configuredAccounts, currentUserID, defaultBackend, earlierSend, enterUser, forwardDraft, letterText,
   liveRead, markHandled, rememberWhereabouts, replyDraft, requestTimeoutMs, resolveTarget, saveSignature, sendMessage,
   SIGNATURE_MAX_CHARS, signatureOf, snoozeMail, webPushEnabled, whereabouts, type WebBackend,
 } from './web-actions.js';
@@ -57,6 +57,9 @@ import {
   accountAlertThreshold, DECIDER_FAIL_COUNT_KEY, FAIL_COUNT_KEY, LLM_FAIL_COUNT_KEY,
 } from './services/health.js';
 import { deciderConfigured } from './services/decider.js';
+import { getLogger } from './logger.js';
+
+const log = getLogger('mcp');
 
 const INSTRUCTIONS =
   'Query mailsift triage results. It monitors inboxes and spam folders, uses an LLM to assess importance, ' +
@@ -707,7 +710,7 @@ export function createServer(
     try {
       store.recordMcpAudit(name, client, ok, target);
     } catch (error) {
-      console.error(`The audit row for ${name} could not be written: ${String(error).slice(0, 160)}`);
+      log.warn(`The audit row for ${name} could not be written: ${String(error).slice(0, 160)}`);
     }
   };
   const server = new McpServer(
@@ -974,7 +977,7 @@ export function createServer(
     async (args) => {
       const ref = refOf(args.messageId, args.account);
       // Settings that cannot be read are the server's fault, not an unknown mailbox.
-      loadConfig();
+      loadConfigForCaller(currentUserID());
       const resolved = resolveTarget(store, ref);
       if ('refused' in resolved) pageAnswer(resolved.refused);
       const target = (resolved as Extract<typeof resolved, { target: unknown }>).target;
@@ -1037,7 +1040,7 @@ export function createServer(
       },
     },
     async (args) => {
-      loadConfig();
+      loadConfigForCaller(currentUserID());
       const key = refOf(args.messageId, args.account);
       const draft = pageAnswer(await asPage((ctx) => replyDraft({ key, mode: args.mode }, store, ctx), args.language));
       return json({
@@ -1081,7 +1084,7 @@ export function createServer(
       },
     },
     async (args) => {
-      loadConfig();
+      loadConfigForCaller(currentUserID());
       const key = refOf(args.messageId, args.account);
       const draft = pageAnswer(await asPage((ctx) => forwardDraft({ key, language: args.language }, store, ctx), args.language));
       return json({
@@ -1108,7 +1111,7 @@ export function createServer(
       inputSchema: { account: z.string().min(1), messageId: z.string().min(1).max(5000) },
     },
     async (args) => {
-      const account = loadConfig().accounts.find((candidate) => candidate.username === args.account);
+      const account = loadConfigForCaller(currentUserID()).accounts.find((candidate) => candidate.username === args.account);
       if (!account) throw new McpToolError('ACCOUNT_UNKNOWN', 'mail account not found');
       const asked = lookupOf(account.username, args.messageId);
       const found = await fetchAttachmentManifestByMessageId(account, asked.messageId, asked.hint)
@@ -1139,7 +1142,7 @@ export function createServer(
       inputSchema: { account: z.string().min(1), messageId: z.string().min(1).max(5000) },
     },
     async (args) => {
-      const account = loadConfig().accounts.find((candidate) => candidate.username === args.account);
+      const account = loadConfigForCaller(currentUserID()).accounts.find((candidate) => candidate.username === args.account);
       if (!account) throw new McpToolError('ACCOUNT_UNKNOWN', 'mail account not found');
       const asked = lookupOf(account.username, args.messageId);
       const report = await inspectMailSafety(account, asked.messageId, asked.hint)
@@ -1164,7 +1167,7 @@ export function createServer(
       },
     },
     async (args) => {
-      const account = loadConfig().accounts.find((candidate) => candidate.username === args.account);
+      const account = loadConfigForCaller(currentUserID()).accounts.find((candidate) => candidate.username === args.account);
       if (!account) throw new McpToolError('ACCOUNT_UNKNOWN', 'mail account not found');
       const asked = lookupOf(account.username, args.messageId);
       const report = await scanAttachmentByMessageId(account, asked.messageId, args.partId, asked.hint)
@@ -1273,7 +1276,7 @@ export function createServer(
       } catch {
         throw new McpToolError('INVALID_ARGUMENT', 'invalid encoded mail resource URI');
       }
-      const account = loadConfig().accounts.find((candidate) => candidate.username === accountName);
+      const account = loadConfigForCaller(currentUserID()).accounts.find((candidate) => candidate.username === accountName);
       if (!account) {
         store.recordMcpAudit('resource:mail-source', client, false, `${accountName}|${messageId}`);
         throw new McpToolError('ACCOUNT_UNKNOWN', 'mail account not found');
@@ -1340,7 +1343,7 @@ export function createServer(
         store.recordMcpAudit('resource:mail-attachment', client, false, `${rawAccount}|${rawMessageId}|${rawPartId}`);
         throw new McpToolError('INVALID_ARGUMENT', 'invalid encoded attachment resource URI');
       }
-      const account = loadConfig().accounts.find((candidate) => candidate.username === accountName);
+      const account = loadConfigForCaller(currentUserID()).accounts.find((candidate) => candidate.username === accountName);
       if (!account) {
         store.recordMcpAudit('resource:mail-attachment', client, false, `${accountName}|${messageId}|${partId}`);
         throw new McpToolError('ACCOUNT_UNKNOWN', 'mail account not found');
@@ -1467,7 +1470,7 @@ export function createServer(
         },
       },
       async (args) => {
-        loadConfig();
+        loadConfigForCaller(currentUserID());
         const ids = oneOrMany(args);
         if (ids) return many(ids, args.account, args.action, args.destination ? { destination: args.destination } : {});
         const key = refOf(args.messageId!, args.account);
@@ -1541,7 +1544,7 @@ export function createServer(
         },
       },
       async (args) => {
-        loadConfig();
+        loadConfigForCaller(currentUserID());
         const ids = oneOrMany(args);
         if (ids) return many(ids, args.account, args.handled ? 'done' : 'not_done');
         const key = storedRef(refOf(args.messageId!, args.account));
@@ -1658,7 +1661,7 @@ export function createServer(
         },
       },
       async (args) => {
-        loadConfig();
+        loadConfigForCaller(currentUserID());
         if (args.replyTo && args.forward) {
           throw new McpToolError('INVALID_ARGUMENT', 'give replyTo to answer a message or forward to pass one on, not both');
         }
@@ -1918,7 +1921,7 @@ export function createServer(
         },
       },
       async (args) => {
-        loadConfig();
+        loadConfigForCaller(currentUserID());
         const answer = pageAnswer(await asPage(async (ctx) => saveSignature({ account: args.account, text: args.text }, store, ctx)));
         return json({ account: answer['account'], signature: answer['signature'], removed: answer['signature'] === '' });
       },
@@ -1947,7 +1950,7 @@ export function createServer(
     },
     async () => {
       try {
-        const config = loadConfig();
+        const config = loadConfigForCaller(currentUserID());
         return json({
           count: config.accounts.length,
           accounts: config.accounts.map((a) => ({
@@ -1977,7 +1980,7 @@ export function createServer(
       inputSchema: { account: z.string().min(1) },
     },
     async (args) => {
-      const account = loadConfig().accounts.find((candidate) => candidate.username === args.account);
+      const account = loadConfigForCaller(currentUserID()).accounts.find((candidate) => candidate.username === args.account);
       if (!account) throw new McpToolError('ACCOUNT_UNKNOWN', 'mail account not found');
       // The page's own list, so the two cannot differ.
       const listed = pageAnswer(await asPage((ctx) => folderList({ account: account.username }, store, ctx)));
@@ -2012,7 +2015,7 @@ export function createServer(
       },
     },
     async (args) => {
-      loadConfig();
+      loadConfigForCaller(currentUserID());
       return json(pageAnswer(await asPage((ctx) => folderPage({
         account: args.account, folder: args.folder, before: args.before ?? null, limit: args.limit,
       }, store, ctx))));
@@ -2042,7 +2045,7 @@ export function createServer(
       },
     },
     async (args) => {
-      loadConfig();
+      loadConfigForCaller(currentUserID());
       // Said in this tool's own words: the page's are about its search field.
       if (!args.query.trim()) throw new McpToolError('INVALID_ARGUMENT', 'query holds nothing to search for', 'Give the words to search for in query.');
       return json(pageAnswer(await asPage((ctx) => mailboxSearch({
@@ -2079,7 +2082,7 @@ export function createServer(
       },
     },
     async (args) => {
-      const accounts = loadConfig().accounts.map((account) => ({
+      const accounts = loadConfigForCaller(currentUserID()).accounts.map((account) => ({
         name: account.name,
         address: account.username,
         consecutiveFailures: Number(store.getMeta(FAIL_COUNT_KEY + account.username) ?? 0),
@@ -2128,7 +2131,7 @@ export function createServer(
 
       const failing: Array<Record<string, unknown>> = [];
       try {
-        for (const account of loadConfig().accounts) {
+        for (const account of loadConfigForCaller(currentUserID()).accounts) {
           const count = store.getMeta(FAIL_COUNT_KEY + account.username);
           if (count) {
             failing.push({
@@ -2372,8 +2375,13 @@ export async function startMcpHttp(
           : '';
         // A caller holding the write credential also gets everything the read
         // credential gets; the reverse is what must not happen.
-        const writable = writeToken !== '' && secretEquals(writeToken, presented);
-        const authorized = !token || writable || secretEquals(token, presented);
+        const ownerWritable = writeToken !== '' && secretEquals(writeToken, presented);
+        const ownerRead = token !== '' && secretEquals(token, presented);
+        // Per-person tokens resolve to their owner's store, so two assistants
+        // can connect to one mailsift and each sees only one person's mail.
+        const personal = resolveUserMcpToken(presented);
+        const userID = personal?.userID ?? 'owner';
+        const authorized = Boolean(personal) || !token || ownerWritable || ownerRead;
         if (!authorized) {
           // Recorded so a rejected attempt is visible; the value presented is
           // never stored, only the fact and the caller fingerprint.
@@ -2386,7 +2394,9 @@ export async function startMcpHttp(
           res.writeHead(401, { 'content-type': 'application/json' }).end('{"error":"unauthorized"}');
           return;
         }
-        const state = new StateStore();
+        const writable = personal ? personal.writable : ownerWritable;
+        enterUser(userID);
+        const state = new StateStore(storePathFor(userID));
         const inFlight: InFlight = { count: 0 };
         const server = createServer({ state, client, writable, inFlight });
         // Omitting sessionIdGenerator selects stateless mode.
@@ -2410,7 +2420,7 @@ export async function startMcpHttp(
         await server.connect(transport as unknown as Transport);
         await transport.handleRequest(req, res);
       } catch (error) {
-        console.error('MCP request failed:', error);
+        log.error(`MCP request failed: ${String(error).slice(0, 300)}`);
         if (!res.headersSent) res.writeHead(500).end();
       }
     })();
@@ -2464,9 +2474,9 @@ export async function startMcpHttp(
         const pruning = new StateStore(storePathFor(user.id));
         try {
           const ended = pruning.prunePushSubscriptions(valid);
-          if (ended > 0) console.error(`mailsift: ended ${ended} notification subscription(s) for ${user.username} made under a replaced credential.`);
+          if (ended > 0) log.info(`ended ${ended} notification subscription(s) for ${user.username} made under a replaced credential.`);
         } catch (error) {
-          console.error(`mailsift: could not check notification subscriptions for ${user.username}:`, error);
+          log.warn(`could not check notification subscriptions for ${user.username}: ${String(error).slice(0, 200)}`);
         } finally {
           pruning.close();
         }

@@ -177,6 +177,7 @@ export class FeishuSink implements Sink {
   constructor(
     private readonly url = process.env.FEISHU_WEBHOOK_URL ?? '',
     private readonly secret = process.env.FEISHU_WEBHOOK_SECRET ?? '',
+    private readonly minimum = process.env.FEISHU_MIN_IMPORTANCE || process.env.PUSH_MIN_IMPORTANCE || 'warning',
   ) {}
 
   get configured(): boolean {
@@ -185,10 +186,7 @@ export class FeishuSink implements Sink {
 
   /** Feishu may be stricter than the global threshold; digests are exempt. */
   private get threshold(): number {
-    const level = (process.env.FEISHU_MIN_IMPORTANCE ||
-      process.env.PUSH_MIN_IMPORTANCE ||
-      'warning') as Importance;
-    return IMPORTANCE_RANK[level] ?? 1;
+    return IMPORTANCE_RANK[this.minimum as Importance] ?? 1;
   }
 
   async push(message: MailMessage, result: TriageResult): Promise<PushOutcome> {
@@ -199,12 +197,13 @@ export class FeishuSink implements Sink {
     if (!isDigest && effectiveRank(message, result) < this.threshold) return 'declined';
 
     if ((process.env.DRY_RUN ?? '').toLowerCase() === 'true') {
-      log.info(`[dry-run] Would send to Feishu | ${result.importance} | ${message.subject}`);
+      log.info(`[dry-run] Would send to Feishu | ${result.importance} | ${message.accountLabel || 'mail'}`);
+      log.debug(`[dry-run] Feishu subject: ${message.subject}`);
       return 'delivered';
     }
     if (!this.configured) return 'declined';
 
-    const delivered = await deliverWithRetry(`Feishu | ${message.subject}`, this.retry, async () => {
+    const delivered = await deliverWithRetry(`Feishu | ${message.accountLabel || 'mail'} | ${result.importance}`, this.retry, async () => {
       // Sign inside the attempt so a retry never reuses a stale timestamp.
       const payload = buildCard(message, result) as Record<string, unknown>;
       if (this.secret) {
@@ -233,8 +232,9 @@ export class FeishuSink implements Sink {
           };
         }
         log.info(
-          `Feishu delivered | ${result.importance} | ${message.subject}${message.inSpam ? ' (recovered from spam)' : ''}`,
+          `Feishu delivered | ${result.importance} | ${message.accountLabel || 'mail'}${message.inSpam ? ' (recovered from spam)' : ''}`,
         );
+        log.debug(`Feishu subject: ${message.subject}`);
         return { delivered: true, retryable: false, detail: '' };
       } catch (error) {
         return { delivered: false, retryable: true, detail: String(error) };

@@ -44,7 +44,7 @@ import { DARK_BAR, LIGHT_BAR, styles } from './web-styles.js';
 import { isLanguage, LANGUAGES, t, type Language, type StringKey } from './web-strings.js';
 import { appPolicy, framePolicy, MAIL_FRAME, SERVICE_WORKER, SHELL_HEADER } from './web-worker.js';
 import { doneListDays, MAX_CONTACTS, StateStore, storePathFor, type MailRow, type SentRow } from './services/state.js';
-import { endUserSession, ownerClaimed, signIn } from './services/settings-store.js';
+import { endUserSession, ownerClaimed, readSettingsFor, signIn } from './services/settings-store.js';
 
 export { LANGUAGE_COOKIE, readCookie, SESSION_COOKIE, tokenMatches };
 export type { Session, WebBackend, WebResponse };
@@ -378,6 +378,10 @@ export async function handleApi(
     }
     return json(200, {
       ...store.summarize(hours),
+      // The page keeps its last view in localStorage. That storage is scoped to
+      // the origin, not the session, so this id is what lets the page drop a
+      // previous user's snapshot and drafts after a session expires.
+      user: { id: currentUserID() },
       categories: CATEGORIES,
       accounts: accounts.map((a) => {
         const sending = backend.sending(a);
@@ -392,6 +396,7 @@ export async function handleApi(
       lastPollAt: store.getMeta(HEARTBEAT_KEY) ?? null,
       pollIntervalSeconds: Number(process.env.POLL_INTERVAL_SECONDS ?? 300),
       mailboxes: mailboxStatuses(store, accounts),
+      llmUsage: store.llmUsageToday(),
       outboxPending: store.notificationOutboxPending(),
       attention: store.attentionCount(),
       // What this session may do, so the page offers only what will work.
@@ -416,7 +421,15 @@ export async function handleApi(
     // lay the same queue out as a list instead of showing markdown source.
     // The send time is worked out here, by the clock that sends it, and the
     // page shows it in its own.
-    const next = nextDigestAt(store);
+    // Tests and token-only tools have no settings store: they keep the
+    // environment's schedule rather than reading somebody else's defaults.
+    const values = context.options?.adminAuth ? readSettingsFor(currentUserID()).values : {};
+    const rawHour = values['DIGEST_HOUR'] ?? '';
+    const hour = rawHour ? Number(rawHour) : Number.NaN;
+    const next = nextDigestAt(store, new Date(), {
+      ...(Number.isInteger(hour) && hour >= 0 && hour <= 23 ? { hour } : {}),
+      ...(values['DIGEST_ENABLED'] !== undefined ? { enabled: values['DIGEST_ENABLED'] !== 'false' } : {}),
+    });
     return json(200, {
       pending: items.length,
       preview: renderDigest(items),
@@ -742,6 +755,10 @@ export function renderLogin(lang: Language, error?: StringKey, nonce = '', upgra
           <span class="login-label">${s('login.token')}</span>
           <input type="password" name="password" autocomplete="current-password" enterkeyhint="go" required>
         </label>
+        <label class="login-field">
+          <span class="login-label">${s('login.code')}</span>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" placeholder="${s('login.codeHint')}">
+        </label>
         <input type="hidden" name="next" value="${escapeHtml(next)}">
         <button class="login-submit" type="submit">${s('login.open')}</button>
         ${error ? '<p class="error" role="alert">' + s(error) + '</p>' : ''}
@@ -839,7 +856,7 @@ function icon(id: string, cls = 'icon'): string {
  * their key, so the switch can reword them in place instead of reloading and
  * losing the filters.
  */
-export function renderApp(lang: Language, canRefresh = false, nonce = '', settingsLink = false): string {
+export function renderApp(lang: Language, canRefresh = false, nonce = '', settingsLink = false, userId = ''): string {
   const s = (key: StringKey): string => escapeHtml(t(lang, key));
   const worded = (tag: string, key: StringKey, attrs = ''): string =>
     `<${tag}${attrs ? ' ' + attrs : ''} data-i18n="${key}">${s(key)}</${tag}>`;
@@ -1008,10 +1025,10 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
     <div id="sending" class="toast sending" popover="manual" role="status" hidden></div>
     <div id="announce" class="sr-only" aria-live="polite"></div>
     ${iconSymbols()}
-    <script nonce="${nonce}">` + clientScript() + `</script>`, nonce);
+    <script nonce="${nonce}">` + clientScript() + `</script>`, nonce, userId ? ` data-user-id="${escapeHtml(userId)}"` : '');
 }
 
-function page(lang: Language, title: string, body: string, nonce = ''): string {
+function page(lang: Language, title: string, body: string, nonce = '', bodyAttrs = ''): string {
   return '<!doctype html><html lang="' + lang + '"><head><meta charset="utf-8">'
     // viewport-fit=cover lets the page reach under a notch; the CSS then pads
     // it back with the safe-area insets, which is what an installed app needs.
@@ -1034,7 +1051,7 @@ function page(lang: Language, title: string, body: string, nonce = ''): string {
     + '<title>' + title + '</title><style>' + styles() + '</style>'
     // Before the body renders, so a stored choice never flashes the other theme.
     + '<script nonce="' + nonce + '">' + themeBoot() + '</script>'
-    + '</head><body>' + body + '</body></html>';
+    + '</head><body' + bodyAttrs + '>' + body + '</body></html>';
 }
 
 /**
@@ -1305,10 +1322,11 @@ async function route(
     // old `token` field stays for MCP clients and for a token-only deployment.
     const username = (form.get('username') ?? '').trim();
     const password = form.get('password') ?? '';
+    const code = form.get('code') ?? '';
     const presented = (form.get('token') ?? '').trim();
     const next = signInTarget(form.get('next'));
     if (options.adminAuth && username) {
-      const session = signIn(username, password);
+      const session = signIn(username, password, code);
       if (!session) return html(401, renderLogin(lang, 'login.rejected', nonce, false, next));
       return {
         status: 303, body: '', contentType: 'text/html; charset=utf-8', cookie: adminCookie(req, session),
@@ -1398,7 +1416,9 @@ async function route(
   // HEAD as GET: an uptime check asks for the page without its body, which the server leaves out.
   if (url.pathname === '/' && (req.method === 'GET' || req.method === 'HEAD')) {
     // Settings are reached from every signed-in page of the server; a token session is asked for the password there.
-    const answer = html(200, renderApp(lang, Boolean(options.onRefresh), nonce, Boolean(options.adminAuth)), true);
+    const answer = html(200, renderApp(
+      lang, Boolean(options.onRefresh), nonce, Boolean(options.adminAuth), signedIn?.user.id ?? '',
+    ), true);
     // Roll the session forward on each visit, so regular use never expires.
     // Only on the page: doing it on the polling calls would rewrite the cookie
     // every minute for nothing.

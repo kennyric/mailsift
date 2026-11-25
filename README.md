@@ -41,13 +41,20 @@ The port is published on the server's loopback address only, and mailsift accept
 
 Gmail and Outlook sign in with OAuth, through an OAuth app you register once with Google or Microsoft; see [Gmail and Outlook sign-in](docs/deployment.md#gmail-and-outlook-sign-in). A personal Gmail account can use an app password instead, or be forwarded into a mailbox that signs in with a password ([Forwarding between mailboxes](docs/configuration.md#forwarding-between-mailboxes)). Both are walked through step by step in the discussions [Gmail / Outlook OAuth sign-in](../../discussions/99) and [Mail forwarding](../../discussions/100).
 
-## Settings
+## People and settings
 
-Everything else is in Settings (the gear in the web view): mailboxes, the AI model, notifications, triage rules, checking and the daily digest, privacy and retention, web mail, MCP tokens and limits. Values are checked when saved, the AI model and notifications can be tested before saving, and secrets are never shown again once saved. A change the running service depends on restarts it on its own, after the poll in progress. Settings and credentials live encrypted in the Docker volumes; back them up together. See [Configuration](docs/configuration.md).
+Several people can use one instance, each with a username, their own mailboxes,
+queue, notifications and MCP tokens. The owner adds them under **Settings →
+Users**; the shared AI key, schedule and privacy switches stay with the owner.
+A member may bring their own API key and model; a different model is accepted
+only together with a key of their own, never with the owner's key. See
+[Multiple people](docs/multi-user.md).
+
+Everything else is in Settings (the gear in the web view): mailboxes, the AI model, notifications, triage rules, checking and the daily digest, privacy and retention, web mail, MCP tokens and limits. Values are checked when saved, the AI model and notifications can be tested before saving, and secrets are never shown again once saved. A change the running service depends on restarts it on its own, after the poll in progress. Settings and credentials live encrypted in the Docker volumes; back them up together with `scripts/backup.sh`. See [Configuration](docs/configuration.md).
 
 ## Web view
 
-Open the page and sign in with the administrator password.
+Open the page and sign in with your username and password.
 
 - **What needs you** comes first: mail judged important that you have not dealt with. Tick it off, swipe it away, put it off until later (it comes back when you said, with a notification), or open it.
 - **Read** a message as it was sent. Remote images wait until you ask, tracking pixels are dropped, a link that goes somewhere other than it says is marked, and your provider's verdict on the sender is shown.
@@ -64,7 +71,7 @@ Notifications and installing to a home screen need HTTPS (or the page opened at 
 
 ## MCP
 
-The MCP server runs inside mailsift at `/mcp` on the same address (Streamable HTTP, `Authorization: Bearer <token>`). Add it to an MCP client and an assistant can see what needs you, list, search and read your triaged mail, preview the digest, or check mailbox health. It also ships the workflows those tools are meant to be used in, as prompts: catch up on the mailbox, or work out why something never reached you. Settings → Access generates two tokens, each shown once: the read token only looks; the write token also gives an assistant what the web view's owner has: marking mail done, putting it off until later, filing and binning it, and sending and forwarding mail, all audited. Give that token only to a client you would hand your mailbox to. An agent that supports skills can load [.agents/skills/mailsift/SKILL.md](.agents/skills/mailsift/SKILL.md). See [docs/mcp.md](docs/mcp.md).
+The MCP server runs inside mailsift at `/mcp` on the same address (Streamable HTTP, `Authorization: Bearer <token>`). Add it to an MCP client and an assistant can see what needs you, list, search and read your triaged mail, preview the digest, or check mailbox health. It also ships the workflows those tools are meant to be used in, as prompts: catch up on the mailbox, or work out why something never reached you. Settings → Access generates owner tokens, and every person can generate their own under **My MCP tokens**. A personal token sees only that person's mail, and a write token acts only on it. Each token is shown once: the read token only looks; the write token also gives an assistant what the web view's owner has: marking mail done, putting it off until later, filing and binning it, and sending and forwarding mail, all audited. Give that token only to a client you would hand your mailbox to. An agent that supports skills can load [.agents/skills/mailsift/SKILL.md](.agents/skills/mailsift/SKILL.md). See [docs/mcp.md](docs/mcp.md).
 
 ## Everyday commands
 

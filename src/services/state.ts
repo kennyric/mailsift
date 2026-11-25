@@ -783,6 +783,36 @@ export class StateStore {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_feedback_label ON feedback (label, dedup_key)');
     // A message listed live is matched to the record stored at its very place.
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_seen_place ON seen (account, folder, uid, uid_validity)');
+    // Full-text search over what a person reads of a message. The LIKE scan it
+    // replaces had to inspect every retained row; FTS5 keeps the common search
+    // a small index lookup even after a year of mail.
+    this.db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS seen_fts USING fts5(
+        subject, sender, sender_name, summary, reason, category, snippet,
+        content='seen', content_rowid='rowid'
+      );
+      CREATE TRIGGER IF NOT EXISTS seen_fts_ai AFTER INSERT ON seen BEGIN
+        INSERT INTO seen_fts(rowid, subject, sender, sender_name, summary, reason, category, snippet)
+        VALUES (new.rowid, new.subject, new.sender, new.sender_name, new.summary, new.reason, new.category, new.snippet);
+      END;
+      CREATE TRIGGER IF NOT EXISTS seen_fts_ad AFTER DELETE ON seen BEGIN
+        INSERT INTO seen_fts(seen_fts, rowid, subject, sender, sender_name, summary, reason, category, snippet)
+        VALUES ('delete', old.rowid, old.subject, old.sender, old.sender_name, old.summary, old.reason, old.category, old.snippet);
+      END;
+      CREATE TRIGGER IF NOT EXISTS seen_fts_au AFTER UPDATE ON seen BEGIN
+        INSERT INTO seen_fts(seen_fts, rowid, subject, sender, sender_name, summary, reason, category, snippet)
+        VALUES ('delete', old.rowid, old.subject, old.sender, old.sender_name, old.summary, old.reason, old.category, old.snippet);
+        INSERT INTO seen_fts(rowid, subject, sender, sender_name, summary, reason, category, snippet)
+        VALUES (new.rowid, new.subject, new.sender, new.sender_name, new.summary, new.reason, new.category, new.snippet);
+      END;
+    `);
+    if (this.getMeta('fts_index_v1') === undefined) {
+      // One rebuild per database, not per process. A failure leaves the flag
+      // unset so the next open can try again rather than silently searching an
+      // empty index.
+      this.db.exec("INSERT INTO seen_fts(seen_fts) VALUES('rebuild')");
+      this.setMeta('fts_index_v1', now());
+    }
     // Before 0.1.98, code mail mailsift handled itself was labelled
     // 'fallback', which reads as a failed model and made it a candidate for
     // re-triage after an LLM outage, where its stored code was lost. It was
@@ -1386,16 +1416,30 @@ export class StateStore {
       // mailsift's own bookkeeping: a thread's key starts with the mailbox's address, and the attachment
       // list's own field names are in every message that has one, so a search for either named everything.
       // A Message-ID is the sender's machine text: it is matched whole, with or without its angle brackets.
+      // FTS5 handles the words a person searches for. A term is quoted and
+      // prefix-matched, so `@` and punctuation cannot be read as FTS syntax.
+      // Punctuation is literal in mailsift's search. FTS would split
+      // `report-q3` and `report_q3` into the same words, so those go through
+      // the exact LIKE arm instead; ordinary words take the index.
+      const ftsUsable = !/[%_\-]/.test(options.search);
+      const fts = ftsUsable ? options.search.trim().split(/\s+/).filter(Boolean).slice(0, 12)
+        .map((term) => `"${term.replace(/"/g, '""')}"*`).join(' AND ') : '';
       const pattern = `%${likeEscape(options.search)}%`;
       const like = (column: string): string => `${column} LIKE ? ESCAPE '\\'`;
       const id = options.search.trim();
+      const indexed = fts ? 'rowid IN (SELECT rowid FROM seen_fts WHERE seen_fts MATCH ?) OR ' : '';
+      // FTS5's default tokenizer is word-based, and CJK text (and a literal
+      // `%` or `_`) does not always split the way a person expects. The LIKE
+      // arm keeps the old, exact behaviour; the index is the fast path for the
+      // ordinary Latin search that dominates a mailbox.
+      const legacy = ['subject', 'sender', 'sender_name', 'reason', 'category', 'summary', 'snippet'].map(like).join(' OR ');
       clauses.push(
-        `(${['subject', 'sender', 'sender_name', 'reason', 'category', 'summary', 'snippet'].map(like).join(' OR ')} `
-          + 'OR message_id = ? OR message_id = ? '
+        `(${indexed}message_id = ? OR message_id = ? OR ${legacy} `
           + "OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(attachments_json) THEN attachments_json END, '$.items') "
           + `WHERE ${like("json_extract(value, '$.filename')")} OR ${like("json_extract(value, '$.contentType')")}))`,
       );
-      params.push(...Array<string>(7).fill(pattern), id, id.startsWith('<') ? id : `<${id}>`, pattern, pattern);
+      if (fts) params.push(fts);
+      params.push(id, id.startsWith('<') ? id : `<${id}>`, ...Array<string>(7).fill(pattern), pattern, pattern);
     }
     if (options.beforeCreatedAt) {
       if (options.beforeDedupKey) {
@@ -2846,6 +2890,41 @@ export class StateStore {
   /** Remove a meta value outright, for a setting that is gone rather than set to nothing. */
   deleteMeta(key: string): void {
     this.db.prepare('DELETE FROM meta WHERE key = ?').run(key);
+  }
+
+  /**
+   * Add one LLM batch's usage to this person's day counter.
+   *
+   * The shared API key is the instance's, but the spend belongs to the person
+   * whose mail was judged; the owner can see it per user. Cost is kept in the
+   * provider's ticks (1 USD = 1e10) when the provider reports it.
+   */
+  recordLlmUsage(usage: { total: number; costTicks?: number }, at = new Date()): void {
+    const day = at.toISOString().slice(0, 10);
+    const tokenKey = `llm_tokens_${day}`;
+    const costKey = `llm_cost_ticks_${day}`;
+    const tokens = Number(this.getMeta(tokenKey) ?? 0) + Math.max(0, Math.floor(usage.total));
+    const ticks = Number(this.getMeta(costKey) ?? 0) + Math.max(0, Math.floor(usage.costTicks ?? 0));
+    this.setMetas([[tokenKey, String(tokens)], [costKey, String(ticks)]]);
+  }
+
+  /** Reclaim the space retention freed. Cheap enough weekly, too heavy every poll. */
+  compact(stamp = new Date().toISOString().slice(0, 10)): void {
+    const last = this.getMeta('last_vacuum');
+    if (last === stamp) return;
+    const previous = last ? Date.parse(last) : 0;
+    if (previous && Date.now() - previous < 7 * 86_400_000) return;
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    this.db.exec('VACUUM');
+    this.setMeta('last_vacuum', stamp);
+  }
+
+  llmUsageToday(at = new Date()): { tokens: number; costTicks: number } {
+    const day = at.toISOString().slice(0, 10);
+    return {
+      tokens: Number(this.getMeta(`llm_tokens_${day}`) ?? 0),
+      costTicks: Number(this.getMeta(`llm_cost_ticks_${day}`) ?? 0),
+    };
   }
 
   /**

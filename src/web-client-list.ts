@@ -1222,6 +1222,7 @@ function saveSnapshot() {
     try {
       writeStorage(SNAPSHOT_KEY, JSON.stringify({
         at: (lastFetchAt || new Date()).toISOString(),
+        userId: bootUserId,
         mail: lastMail.slice(0, 60).map(plain),
         attention: (attention || []).slice(0, 40).map(plain),
         done: doneRecent.slice(0, 20).map(plain),
@@ -1240,6 +1241,11 @@ function restoreSnapshot() {
   try {
     const snap = JSON.parse(readStorage(SNAPSHOT_KEY) || 'null');
     if (!snap || !Array.isArray(snap.mail) || !(Date.now() - Date.parse(snap.at) < SNAPSHOT_MAX_AGE)) return false;
+    // A copy written by another person on this browser is not this page's to show.
+    if (snap.userId && bootUserId && snap.userId !== bootUserId) {
+      purgeUserStorage();
+      return false;
+    }
     lastMail = snap.mail;
     lastSummary = snap.summary || null;
     lastDigest = snap.digest || null;
@@ -1259,11 +1265,7 @@ function restoreSnapshot() {
   }
 }
 function forgetLocal() {
-  try {
-    for (const key of Object.keys(localStorage)) {
-      if (key === SNAPSHOT_KEY || key === 'seenAt' || key === 'digestSeen' || key === 'imagesFrom' || key.indexOf('draft:') === 0) localStorage.removeItem(key);
-    }
-  } catch (e) {}
+  purgeUserStorage();
 }
 
 // What a reload or a home-screen shortcut asked for, once the list is here.

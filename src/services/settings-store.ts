@@ -17,6 +17,7 @@
 import {
   createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual,
 } from 'node:crypto';
+import { newTotpSecret, totpMatches } from './totp.js';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
@@ -75,6 +76,60 @@ export interface User {
   role: UserRole;
   disabled: boolean;
   createdAt: string;
+  lastLoginAt?: string;
+  lastFailedLoginAt?: string;
+  failedAttempts?: number;
+  lockedUntil?: number;
+  totpEnabled?: boolean;
+}
+
+/**
+ * Settings that belong to the person whose mail is being judged, not to the
+ * instance. They live in a sealed per-user document, so a member never
+ * inherits the owner's "About you" text, sender rules, language or outputs.
+ */
+export const PERSONAL_KEYS: ReadonlySet<string> = new Set([
+  'MAIL_CONTEXT', 'MAIL_ALWAYS_IMPORTANT', 'MAIL_NEVER_IMPORTANT',
+  'LLM_OUTPUT_LANGUAGE', 'PUSH_MIN_IMPORTANCE', 'DIGEST_ENABLED', 'DIGEST_HOUR', 'DIGEST_MIN_IMPORTANCE',
+  'FEISHU_WEBHOOK_URL', 'FEISHU_WEBHOOK_SECRET', 'FEISHU_MIN_IMPORTANCE',
+  'WEBHOOK_URL', 'WEBHOOK_TOKEN',
+]);
+
+/**
+ * Settings a person may replace for their own mail while still inheriting the
+ * owner's value when they leave them blank.
+ *
+ * The row itself is personal only when the person typed a value. The key
+ * invariant is enforced in updateSettingsFor: a personal model/provider/
+ * endpoint without a personal API key would spend the owner's token on a
+ * model the owner did not choose, so it is refused.
+ */
+export const OVERRIDABLE_KEYS: ReadonlySet<string> = new Set([
+  'LLM_PROVIDER', 'LLM_BASE_URL', 'LLM_MODEL', 'LLM_API_KEY',
+]);
+
+/** A member tried to point the owner's API key at their own model. */
+export class LlmOverrideDenied extends Error {
+  override name = 'LlmOverrideDenied';
+  constructor() { super('Set your own API key before choosing a different model or provider.'); }
+}
+
+export interface AdminAuditEvent {
+  id: number;
+  at: string;
+  actorID: string | null;
+  actor: string | null;
+  action: string;
+  target: string | null;
+  success: boolean;
+  detail: string | null;
+}
+
+export interface UserMcpToken {
+  id: string;
+  writable: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
 }
 
 const emptyDocument = (): SettingsDocument => ({ values: {}, mailboxes: [] });
@@ -125,7 +180,11 @@ function database(): DatabaseSync {
       role          TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','member')),
       disabled      INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL,
-      changed_at    TEXT NOT NULL
+      changed_at    TEXT NOT NULL,
+      last_login_at TEXT,
+      last_failed_login_at TEXT,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until  INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS user_sessions (
       token_hash TEXT PRIMARY KEY,
@@ -135,8 +194,33 @@ function database(): DatabaseSync {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+    CREATE TABLE IF NOT EXISTS admin_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      actor_id TEXT,
+      actor TEXT,
+      action TEXT NOT NULL,
+      target TEXT,
+      success INTEGER NOT NULL,
+      detail TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at);
+    CREATE TABLE IF NOT EXISTS user_mcp_tokens (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      writable INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_mcp_tokens_user ON user_mcp_tokens(user_id);
   `);
   addColumnIfMissing(db, 'user_sessions', 'credential', "TEXT NOT NULL DEFAULT ''");
+  for (const [column, declaration] of [
+    ['last_login_at', 'TEXT'],
+    ['last_failed_login_at', 'TEXT'],
+    ['failed_attempts', 'INTEGER NOT NULL DEFAULT 0'],
+    ['locked_until', 'INTEGER NOT NULL DEFAULT 0'],
+  ] as const) addColumnIfMissing(db, 'users', column, declaration);
   if (path !== ':memory:') {
     try { chmodSync(path, 0o600); } catch { /* not ours to change, e.g. a read-only mount */ }
   }
@@ -343,6 +427,98 @@ function parseDocument(raw: string | undefined): SettingsDocument {
 
 const SHARED_ROW = 'shared.v1';
 const mailboxRow = (userID: string): string => `mailboxes.v1:${userID}`;
+const personalRow = (userID: string): string => `personal.v1:${userID}`;
+const totpRow = (userID: string): string => `totp.v1:${userID}`;
+
+interface TotpRecord { secret: string; enabled: boolean }
+
+function readTotp(userID: string): TotpRecord | undefined {
+  const raw = readSealed(totpRow(userID));
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Partial<TotpRecord>;
+    return typeof parsed.secret === 'string' && parsed.secret.length >= 16
+      ? { secret: parsed.secret, enabled: parsed.enabled === true }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function totpEnabledFor(userID: string): boolean {
+  return readTotp(userID)?.enabled === true;
+}
+
+/** Start (or restart) an authenticator setup. The second factor stays off until a code proves it. */
+export function beginTotp(userID: string): string {
+  const secret = newTotpSecret();
+  writeSealed(totpRow(userID), JSON.stringify({ secret, enabled: false } satisfies TotpRecord));
+  return secret;
+}
+
+export function enableTotp(userID: string, code: string): boolean {
+  const record = readTotp(userID);
+  if (!record || record.enabled || !totpMatches(record.secret, code)) return false;
+  writeSealed(totpRow(userID), JSON.stringify({ secret: record.secret, enabled: true } satisfies TotpRecord));
+  return true;
+}
+
+export function disableTotp(userID: string): void {
+  database().prepare('DELETE FROM settings_store WHERE key = ?').run(totpRow(userID));
+}
+
+/** The personal overrides this user has saved. Empty for a fresh member. */
+export function readPersonalValues(userID: string): Record<string, string> {
+  const raw = readSealed(personalRow(userID));
+  if (!raw) return {};
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parseDocument(raw).values)) {
+    if (PERSONAL_KEYS.has(key) || OVERRIDABLE_KEYS.has(key)) values[key] = value;
+  }
+  return values;
+}
+
+/** The shared (owner) values, without any member's overrides. Never includes personal keys. */
+export function readSharedValues(): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(readShared().values)) {
+    // Personal keys never fall back to the owner; LLM overrides do, because a
+    // member who has not chosen a model should use the owner's without spending
+    // anything of their own.
+    if (PERSONAL_KEYS.has(key)) continue;
+    values[key] = value;
+  }
+  return values;
+}
+
+/** One person's explicit overrides, which is what the model/key rule is checked against. */
+export function readLlmOverrides(userID: string): Record<string, string> {
+  const personal = readPersonalValues(userID);
+  const out: Record<string, string> = {};
+  for (const key of OVERRIDABLE_KEYS) {
+    if (personal[key]?.trim()) out[key] = personal[key]!;
+  }
+  return out;
+}
+
+/** Shared values as one person may see them: a member does not inherit the owner's personal keys. */
+function effectiveValues(userID: string): Record<string, string> {
+  const shared = readShared().values;
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(shared)) {
+    if (roleOf(userID) === 'member' && PERSONAL_KEYS.has(key)) continue;
+    values[key] = value;
+  }
+  return { ...values, ...readPersonalValues(userID) };
+}
+
+function writePersonalValues(userID: string, values: Record<string, string>): void {
+  const personal: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (PERSONAL_KEYS.has(key) || OVERRIDABLE_KEYS.has(key)) personal[key] = value;
+  }
+  writeSealed(personalRow(userID), JSON.stringify({ values: personal }));
+}
 
 /** A mailbox address already belongs to somebody else on this instance. */
 export class MailboxConflictError extends Error {
@@ -378,12 +554,11 @@ function readMailboxDocument(userID: string): { mailboxes: MailboxSettings[]; se
   return { mailboxes: [] };
 }
 
-/** The document a user sees: shared scalars plus their own mailboxes. */
+/** The document a user sees: shared scalars, their personal overrides, and their own mailboxes. */
 export function readSettingsFor(userID: string): SettingsDocument {
-  const shared = readShared();
   const boxes = readMailboxDocument(userID);
   return {
-    values: { ...shared.values },
+    values: effectiveValues(userID),
     mailboxes: boxes.mailboxes,
     ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
   };
@@ -434,19 +609,53 @@ export function updateSettingsFor(userID: string, change: (doc: SettingsDocument
   const db = database();
   return transaction(db, () => {
     const shared = readShared();
+    const before = effectiveValues(userID);
     const boxes = readMailboxDocument(userID);
     const doc: SettingsDocument = {
-      values: { ...shared.values },
+      values: { ...before },
       mailboxes: boxes.mailboxes.map((mailbox) => ({ ...mailbox })),
       ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
     };
     change(doc);
     const clash = mailboxClash(userID, doc.mailboxes);
     if (clash) throw new MailboxConflictError(clash.address, clash.ownerID);
+
+    // Work out which keys actually changed, and split them by scope. A member
+    // may change the personal ones; only the owner may change the shared ones.
+    const changed = new Set<string>();
+    for (const key of new Set([...Object.keys(before), ...Object.keys(doc.values)])) {
+      if (before[key] !== doc.values[key]) changed.add(key);
+    }
     const role = roleOf(userID);
-    const valuesChanged = JSON.stringify(doc.values) !== JSON.stringify(shared.values);
-    if (valuesChanged && role === 'member') throw new SharedSettingsDenied();
-    if (valuesChanged) writeSealed(SHARED_ROW, JSON.stringify({ values: doc.values }));
+    const personalChanged = new Set([...changed].filter((key) =>
+      PERSONAL_KEYS.has(key) || (role === 'member' && OVERRIDABLE_KEYS.has(key))));
+    const sharedChanges = [...changed].filter((key) => !personalChanged.has(key));
+    if (sharedChanges.length && role === 'member') throw new SharedSettingsDenied();
+    if (personalChanged.size) {
+      const nextPersonal = { ...readPersonalValues(userID) };
+      for (const key of personalChanged) {
+        const value = doc.values[key];
+        if (value === undefined || value === '') delete nextPersonal[key];
+        else nextPersonal[key] = value;
+      }
+      // The rule that makes a shared key safe: an admin token may only spend
+      // on the admin model. A personal model/provider/endpoint is allowed only
+      // alongside a personal API key.
+      if (role === 'member' && !nextPersonal['LLM_API_KEY']?.trim()
+        && (nextPersonal['LLM_MODEL']?.trim() || nextPersonal['LLM_PROVIDER']?.trim() || nextPersonal['LLM_BASE_URL']?.trim())) {
+        throw new LlmOverrideDenied();
+      }
+      writePersonalValues(userID, nextPersonal);
+    }
+    if (sharedChanges.length) {
+      const nextShared = { ...shared.values };
+      for (const key of sharedChanges) {
+        const value = doc.values[key];
+        if (value === undefined || value === '') delete nextShared[key];
+        else nextShared[key] = value;
+      }
+      writeSealed(SHARED_ROW, JSON.stringify({ values: nextShared }));
+    }
     writeSealed(mailboxRow(userID), JSON.stringify({
       mailboxes: doc.mailboxes,
       ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
@@ -455,12 +664,12 @@ export function updateSettingsFor(userID: string, change: (doc: SettingsDocument
       // One release of rollback compatibility: the previous image reads this
       // row, so it must contain the owner's data and never a member's.
       writeSealed(SETTINGS_ROW, JSON.stringify({
-        values: doc.values,
+        values: readSettingsFor(userID).values,
         mailboxes: doc.mailboxes,
         ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
       }));
     }
-    return doc;
+    return readSettingsFor(userID);
   });
 }
 
@@ -514,6 +723,8 @@ export function updateOAuthTokens(change: (current: string | undefined) => strin
  * may restart the service in between.
  */
 export interface PendingSignIn {
+  /** The person whose mailbox is being authorized; absent on records from before multi-user. */
+  userID?: string;
   mailboxId: string;
   username: string;
   verifier: string;
@@ -656,6 +867,8 @@ export function resetAdmin(): string {
     db.prepare("UPDATE users SET password_hash = ?, changed_at = ? WHERE role = 'owner'")
       .run(hashPassword(randomBytes(32).toString('base64url')), now);
     db.prepare("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE role = 'owner')").run();
+    // A reset must not leave the old authenticator as the only way in.
+    db.prepare('DELETE FROM settings_store WHERE key = ?').run(totpRow('owner'));
     return code;
   });
 }
@@ -667,11 +880,28 @@ export function resetAdmin(): string {
 interface UserRow {
   id: string; username: string; password_hash: string; role: UserRole;
   disabled: number; created_at: string;
+  last_login_at?: string | null;
+  last_failed_login_at?: string | null;
+  failed_attempts?: number;
+  locked_until?: number;
 }
 
 const toUser = (row: UserRow): User => ({
   id: row.id, username: row.username, role: row.role, disabled: Boolean(row.disabled), createdAt: row.created_at,
+  ...(row.last_login_at ? { lastLoginAt: row.last_login_at } : {}),
+  ...(row.last_failed_login_at ? { lastFailedLoginAt: row.last_failed_login_at } : {}),
+  failedAttempts: Number(row.failed_attempts ?? 0),
+  lockedUntil: Number(row.locked_until ?? 0),
 });
+
+const withTotp = (user: User): User => ({ ...user, totpEnabled: totpEnabledFor(user.id) });
+
+/** Check the current password without creating a session (for disabling a second factor). */
+export function verifyUserPassword(userID: string, password: string): boolean {
+  const row = database().prepare('SELECT password_hash, disabled FROM users WHERE id = ?').get(userID) as
+    { password_hash: string; disabled: number } | undefined;
+  return Boolean(row && !row.disabled && password && passwordMatches(row.password_hash, password));
+}
 
 export function normalizeUsername(raw: string): string {
   return raw.normalize('NFKC').trim();
@@ -761,17 +991,49 @@ export function claimOwner(code: string, username: string, password: string): st
   });
 }
 
-export function signIn(username: string, password: string): string | undefined {
+const MAX_FAILED_LOGINS = 5;
+const LOCKOUT_MS = 5 * 60_000;
+
+/**
+ * Sign a person in, counting failures per account.
+ *
+ * The per-client rate window in web.ts is the first line; this one survives a
+ * restart and stops a distributed guess against one username. A locked account
+ * still spends the same scrypt time, so the reason is not revealed.
+ */
+export function signIn(username: string, password: string, code = ''): string | undefined {
   const db = database();
-  const row = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE')
-    .get(normalizeUsername(username)) as UserRow | undefined;
+  const name = normalizeUsername(username);
+  const row = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(name) as UserRow | undefined;
   if (!row) {
     // Spend the same scrypt time, so an unknown name cannot be told from a wrong password.
     hashPassword(password || 'unknown-user');
+    recordAdminAudit({ action: 'signin', target: name.slice(0, 64), success: false, detail: 'unknown user' });
     return undefined;
   }
-  const ok = Boolean(password) && password.length <= MAX_PASSWORD && passwordMatches(row.password_hash, password);
-  if (!ok || row.disabled) return undefined;
+  const locked = Number(row.locked_until ?? 0) > Date.now();
+  const secondFactor = readTotp(row.id);
+  const okPassword = Boolean(password) && password.length <= MAX_PASSWORD &&
+    passwordMatches(row.password_hash, password);
+  const okSecond = !secondFactor?.enabled || totpMatches(secondFactor.secret, code);
+  const ok = !locked && okPassword && okSecond;
+  if (!ok || row.disabled) {
+    const attempts = Number(row.failed_attempts ?? 0) + 1;
+    const until = attempts >= MAX_FAILED_LOGINS ? Date.now() + LOCKOUT_MS : 0;
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE users SET failed_attempts = ?, last_failed_login_at = ?, locked_until = ? WHERE id = ?`)
+      .run(until ? 0 : attempts, now, until, row.id);
+    recordAdminAudit({
+      actorID: row.id, actor: row.username, action: 'signin', target: row.username,
+      success: false,
+      detail: locked ? 'account locked' : row.disabled ? 'account disabled'
+        : okPassword ? 'wrong authenticator code' : 'wrong password',
+    });
+    return undefined;
+  }
+  db.prepare(`UPDATE users SET failed_attempts = 0, last_failed_login_at = NULL, locked_until = 0,
+    last_login_at = ? WHERE id = ?`).run(new Date().toISOString(), row.id);
+  recordAdminAudit({ actorID: row.id, actor: row.username, action: 'signin', target: row.username, success: true });
   return newUserSession(db, row.id);
 }
 
@@ -782,7 +1044,7 @@ export function sessionUser(token: string): User | undefined {
     SELECT u.* FROM user_sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0
   `).get(digest(token), Date.now()) as UserRow | undefined;
-  return row ? toUser(row) : undefined;
+  return row ? withTotp(toUser(row)) : undefined;
 }
 
 export function startUserSession(userID: string): string {
@@ -835,7 +1097,7 @@ export function changeUserPassword(userID: string, current: string, next: string
 
 export function listUsers(): User[] {
   const rows = database().prepare('SELECT * FROM users ORDER BY created_at, username').all() as unknown as UserRow[];
-  return rows.map(toUser);
+  return rows.map((row) => withTotp(toUser(row)));
 }
 
 /** Create a member (the owner is created by the claim). Undefined when the name or password is unsuitable. */
@@ -861,7 +1123,7 @@ export function createUser(username: string, password: string, role: UserRole = 
 
 export function userByID(id: string): User | undefined {
   const row = database().prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
-  return row ? toUser(row) : undefined;
+  return row ? withTotp(toUser(row)) : undefined;
 }
 
 export function countUsers(): number {
@@ -912,7 +1174,9 @@ export function deleteUser(id: string): User | undefined {
   if (!row || row.role === 'owner') return undefined;
   transaction(db, () => {
     db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM user_mcp_tokens WHERE user_id = ?').run(id);
     db.prepare('DELETE FROM settings_store WHERE key = ?').run(mailboxRow(id));
+    db.prepare('DELETE FROM settings_store WHERE key = ?').run(personalRow(id));
     db.prepare('DELETE FROM users WHERE id = ?').run(id);
   });
   return toUser(row);
@@ -921,4 +1185,106 @@ export function deleteUser(id: string): User | undefined {
 /** The mailboxes of a user, for cleanup before the row goes. */
 export function mailboxAddresses(userID: string): string[] {
   return readMailboxDocument(userID).mailboxes.map((mailbox) => mailbox.username);
+}
+
+// ---------------------------------------------------------------------------
+// Admin audit
+// ---------------------------------------------------------------------------
+
+/** Write one administrator or security event. A failure here must never fail the action it records. */
+export function recordAdminAudit(input: {
+  actorID?: string;
+  actor?: string;
+  action: string;
+  target?: string;
+  success: boolean;
+  detail?: string;
+}): void {
+  try {
+    database().prepare(
+      `INSERT INTO admin_audit (created_at, actor_id, actor, action, target, success, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      new Date().toISOString(),
+      input.actorID ?? null,
+      input.actor ?? null,
+      input.action.slice(0, 80),
+      input.target?.slice(0, 200) ?? null,
+      input.success ? 1 : 0,
+      input.detail?.slice(0, 500) ?? null,
+    );
+  } catch {
+    // The audit is evidence, not the action itself.
+  }
+}
+
+export function listAdminAudit(limit = 100): AdminAuditEvent[] {
+  const rows = database().prepare(
+    `SELECT id, created_at, actor_id, actor, action, target, success, detail
+     FROM admin_audit ORDER BY id DESC LIMIT ?`,
+  ).all(Math.max(1, Math.min(Math.floor(limit), 500))) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: Number(row['id']),
+    at: String(row['created_at']),
+    actorID: (row['actor_id'] as string) ?? null,
+    actor: (row['actor'] as string) ?? null,
+    action: String(row['action']),
+    target: (row['target'] as string) ?? null,
+    success: Boolean(row['success']),
+    detail: (row['detail'] as string) ?? null,
+  }));
+}
+
+/** Drop old audit rows; called with the same retention as the mail records. */
+export function pruneAdminAudit(keepDays = 365): number {
+  const cutoff = new Date(Date.now() - keepDays * 86_400_000).toISOString();
+  return Number(database().prepare('DELETE FROM admin_audit WHERE created_at < ?').run(cutoff).changes);
+}
+
+// ---------------------------------------------------------------------------
+// Per-user MCP tokens
+// ---------------------------------------------------------------------------
+
+/** A token for one person, so an assistant sees only that person's mail. */
+export function createUserMcpToken(userID: string, writable: boolean): { token: string; id: string } {
+  const token = `ms_${randomBytes(32).toString('base64url')}`;
+  const id = digest(token);
+  database().prepare(
+    'INSERT INTO user_mcp_tokens (token_hash, user_id, writable, created_at) VALUES (?, ?, ?, ?)',
+  ).run(id, userID, writable ? 1 : 0, new Date().toISOString());
+  return { token, id };
+}
+
+/** Resolve a presented token to its owner and scope. Disabled users lose access at once. */
+export function resolveUserMcpToken(token: string): { userID: string; writable: boolean } | undefined {
+  if (!token || token.length > 200) return undefined;
+  const row = database().prepare(`
+    SELECT t.user_id, t.writable, t.token_hash
+    FROM user_mcp_tokens t JOIN users u ON u.id = t.user_id
+    WHERE t.token_hash = ? AND u.disabled = 0
+  `).get(digest(token)) as { user_id: string; writable: number; token_hash: string } | undefined;
+  if (!row) return undefined;
+  try {
+    database().prepare('UPDATE user_mcp_tokens SET last_used_at = ? WHERE token_hash = ?')
+      .run(new Date().toISOString(), row.token_hash);
+  } catch { /* a used token remains valid even if the timestamp cannot be written */ }
+  return { userID: row.user_id, writable: Boolean(row.writable) };
+}
+
+export function listUserMcpTokens(userID: string): UserMcpToken[] {
+  const rows = database().prepare(
+    'SELECT token_hash, writable, created_at, last_used_at FROM user_mcp_tokens WHERE user_id = ? ORDER BY created_at DESC',
+  ).all(userID) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row['token_hash']),
+    writable: Boolean(row['writable']),
+    createdAt: String(row['created_at']),
+    lastUsedAt: (row['last_used_at'] as string) ?? null,
+  }));
+}
+
+/** Revoke one token. The owner's own id and another user's id are both scoped by userID. */
+export function revokeUserMcpToken(userID: string, id: string): boolean {
+  const result = database().prepare('DELETE FROM user_mcp_tokens WHERE user_id = ? AND token_hash = ?').run(userID, id);
+  return Number(result.changes) > 0;
 }

@@ -313,6 +313,16 @@ export function loadConfigFor(userID: string, source: NodeJS.ProcessEnv = proces
   return { accounts: accounts.map((account) => ({ ...account, folders: [...account.folders] })), rules: rulesFrom(source) };
 }
 
+/**
+ * Load the caller's own configuration when the settings store supplied one,
+ * or fall back to the numbered MAIL_ACCOUNT_* variables used by tests and
+ * one-off tools. MCP runs both ways.
+ */
+export function loadConfigForCaller(userID: string, source: NodeJS.ProcessEnv = process.env): WatchConfig {
+  if (usingSettingsAccounts()) return loadConfigFor(userID, source);
+  return loadConfig(source);
+}
+
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): WatchConfig {
   const numbered: Array<{ index: number; varName: string; raw: string }> = [];
   if (settingsAccounts) {

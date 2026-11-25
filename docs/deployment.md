@@ -139,7 +139,9 @@ The MCP endpoint is then `https://mail.example.com/mcp`; see [MCP](mcp.md#connec
 
 ## Signing in
 
-The web view and Settings are opened with the administrator password, on the sign-in form at `/signin`. A browser stays signed in for 30 days. Settings need that password: an MCP token, even the write token, can open the mail view (see [Web view](web-view.md#signing-in-and-what-a-session-may-do)) but never Settings, so a client holding a token can act on mail and cannot reconfigure the server.
+The web view and Settings are opened with a username and password, on the sign-in form at `/signin`. A browser stays signed in for 30 days. Settings need that password: an MCP token, even the write token, can open the mail view (see [Web view](web-view.md#signing-in-and-what-a-session-may-do)) but never Settings, so a client holding a token can act on mail and cannot reconfigure the server.
+
+The first account is the **owner**. The owner adds everyone else under **Settings → Users**. Each person has their own mailboxes and triage state; the AI provider, poll interval and privacy switches are shared. A member can turn on two-step sign-in (TOTP) under Settings → Access, and the owner can review sign-ins and changes on `/activity`. See [Multiple people](multi-user.md).
 
 Settings → Access:
 
@@ -231,19 +233,25 @@ Started without the supervisor (`node dist/src/main.js` directly), mailsift cann
 
 Back up both volumes, together:
 
-- `mailsift-data` (`/app/data`): `mailsift.db`, the SQLite database. It holds the settings and the mailboxes, with their passwords and OAuth records encrypted, the triage records, the audit and the notification subscriptions.
+- `mailsift-data` (`/app/data`): `mailsift.db` for the owner and `users/<id>.db` for every member. They hold the settings and the mailboxes, with their passwords and OAuth records encrypted, the triage records, the audit and the notification subscriptions.
 - `mailsift-secrets` (`/app/secrets`): `mailsift.key`, the key the settings and credentials are encrypted with.
 
-Neither is of use without the other. A copy of the database alone carries no credential, and the key alone is 32 random bytes. Together they hold every mailbox credential, so keep the backup as safe as the mailboxes themselves. One way, with the service stopped so the database is quiet:
+Neither is of use without the other. A copy of the database alone carries no credential, and the key alone is 32 random bytes. Together they hold every mailbox credential, so keep the backup as safe as the mailboxes themselves.
+
+The supported way is `scripts/backup.sh`. It does **not** stop the service: each SQLite database is read with `VACUUM INTO`, the result is checked with `PRAGMA integrity_check`, data and secrets go into one archive, and the archive can be encrypted before it leaves the host:
 
 ```bash
-docker compose stop mailsift
-docker run --rm -v mailsift_mailsift-data:/data -v mailsift_mailsift-secrets:/secrets -v "$PWD":/backup \
-  alpine tar czf /backup/mailsift-backup.tgz /data /secrets
-docker compose start mailsift
+# Optional but recommended: a GPG public key whose private half is kept offline.
+BACKUP_GPG_RECIPIENT=you@example.com \
+BACKUP_OFFSITE_DIR=/mnt/nas/mailsift \
+scripts/backup.sh
+
+scripts/restore.sh backups/mailsift-YYYYMMDD-HHMMSS.tgz.gpg
 ```
 
-Compose prefixes the volume names with the project name, by default the name of the directory holding `docker-compose.yml`; `docker volume ls` shows them.
+`BACKUP_KEEP` controls how many archives are kept (14 by default). A daily timer is provided in `deploy/mailsift-backup.timer`; install `deploy/mailsift-backup.service` beside it and set `BACKUP_GPG_RECIPIENT` with `systemctl edit mailsift-backup`. A backup that is never restored is untested: `scripts/restore.sh` deliberately stops the service, verifies the archive contains both `data/mailsift.db` and `secrets/mailsift.key`, and replaces both volumes.
+
+Compose prefixes the volume names with the project name, by default the name of the directory holding `docker-compose.yml`; `docker volume ls` shows them. Set `DATA_VOL` / `SECRETS_VOL` if your project name differs.
 
 If the key is missing while the database holds encrypted settings, or a different key is present, mailsift refuses to start and the log says that the stored settings cannot be read. It never makes a new key over existing data, which would destroy every stored credential. Restore the key from the backup of `mailsift-secrets`. To start over instead, remove both volumes:
 

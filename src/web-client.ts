@@ -790,8 +790,28 @@ let snoozedRows = [], laterExtra = 0, laterExpanded = false;
 let session = { writable: false, writeConfigured: false, assistant: false, push: true, auth: false };
 // Whether the page is on the server's live line, and so hears of mail as it is judged.
 let live = false;
-let sinceAt = Date.parse(readStorage('seenAt') || '') || 0;
 let firstLoadDone = false;
+
+// localStorage is scoped to this origin, not to a signed-in person. If a
+// session expires and somebody else signs in on the same browser, the last
+// view, drafts and seen marks must not be theirs. The server puts the current
+// user id on the body; a different one from the one that wrote the storage
+// means it belongs to somebody else.
+const bootUserId = (document.body && document.body.dataset && document.body.dataset.userId) || '';
+function purgeUserStorage() {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key === 'snapshot' || key === 'seenAt' || key === 'digestSeen' || key === 'imagesFrom'
+        || key === 'activeUserId' || key.indexOf('draft:') === 0) localStorage.removeItem(key);
+    }
+  } catch (e) {}
+}
+try {
+  const knownUser = localStorage.getItem('activeUserId') || '';
+  if (bootUserId && knownUser && knownUser !== bootUserId) purgeUserStorage();
+  if (bootUserId) localStorage.setItem('activeUserId', bootUserId);
+} catch (e) {}
+let sinceAt = Date.parse(readStorage('seenAt') || '') || 0;
 
 function readStorage(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 function writeStorage(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }

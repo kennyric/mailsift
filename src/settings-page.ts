@@ -50,6 +50,54 @@ const EN: Dict = {
   'users.password': 'Temporary password',
   'users.add': 'Create',
   'users.empty': 'No members yet.',
+  'users.you': 'You',
+  'users.lastLogin': 'Last sign-in',
+  'users.never': 'Never',
+  'users.created': 'Created',
+  'users.mailboxes': 'Mailboxes',
+  'users.locked': 'Locked until {at}',
+  'users.failed': '{n} failed sign-ins',
+  'users.dialogRename': 'Rename user',
+  'users.dialogReset': 'Set a new password',
+  'users.dialogDelete': 'Delete user?',
+  'users.deleteBody': 'This deletes {name} and every triage record, draft, sent copy and notification subscription in their mail state. Mail on their provider is not touched. This cannot be undone.',
+  'users.cancel': 'Cancel',
+  'users.save': 'Save',
+  'users.deleteConfirm': 'Delete',
+  'users.newUsername': 'New username',
+  'users.newPassword': 'New password',
+  'users.passwordHelp': 'At least {n} characters. Tell the person; they can change it after signing in.',
+  'users.activityLink': 'Activity log',
+  'activity.title': 'Activity',
+  'activity.lede': 'Sign-ins, settings changes, token rotations and user administration on this mailsift.',
+  'activity.empty': 'No activity recorded yet.',
+  'activity.when': 'When',
+  'activity.who': 'Who',
+  'activity.what': 'What',
+  'activity.target': 'Target',
+  'activity.result': 'Result',
+  'activity.ok': 'OK',
+  'activity.failed': 'Failed',
+  'access.personalTokens': 'My MCP tokens',
+  'access.personalBody': 'Give an assistant its own token. It sees only your mail, and a write token can act only on your mail.',
+  'access.createRead': 'New read token',
+  'access.createWrite': 'New write token',
+  'access.revoke': 'Revoke',
+  'access.none': 'No personal tokens yet.',
+  'access.tokenShown': 'Copy this token now. It is not shown again.',
+  'access.writable': 'write',
+  'access.readOnly': 'read',
+  'access.totp': 'Two-step sign-in',
+  'access.totpBody': 'Ask for a six-digit code from an authenticator app when signing in. The password alone is then not enough.',
+  'access.totpOn': 'On',
+  'access.totpOff': 'Off',
+  'access.totpEnable': 'Set up',
+  'access.totpDisable': 'Turn off',
+  'access.totpScan': 'Add this secret to your authenticator app, then enter the six-digit code it shows.',
+  'access.totpCode': 'Authenticator code',
+  'access.totpDone': 'Two-step sign-in is on.',
+  'access.totpOffDone': 'Two-step sign-in is off.',
+  'access.totpPassword': 'Password to confirm',
   'lang.face': '中文',
   'common.save': 'Save',
   'common.saving': 'Saving…',
@@ -228,6 +276,54 @@ const ZH: Dict = {
   'users.password': '临时密码',
   'users.add': '创建',
   'users.empty': '还没有成员。',
+  'users.you': '你',
+  'users.lastLogin': '上次登录',
+  'users.never': '从未',
+  'users.created': '创建于',
+  'users.mailboxes': '邮箱',
+  'users.locked': '锁定至 {at}',
+  'users.failed': '{n} 次登录失败',
+  'users.dialogRename': '修改用户名',
+  'users.dialogReset': '设置新密码',
+  'users.dialogDelete': '删除用户？',
+  'users.deleteBody': '这会删除 {name} 以及其邮件状态中的全部分诊记录、草稿、已发送副本和通知订阅。邮箱服务商那里的邮件不会被删除。此操作无法撤销。',
+  'users.cancel': '取消',
+  'users.save': '保存',
+  'users.deleteConfirm': '删除',
+  'users.newUsername': '新用户名',
+  'users.newPassword': '新密码',
+  'users.passwordHelp': '至少 {n} 个字符。请告诉对方；对方登录后可以自行修改。',
+  'users.activityLink': '操作日志',
+  'activity.title': '操作日志',
+  'activity.lede': '这个 mailsift 上的登录、设置修改、令牌轮换和用户管理。',
+  'activity.empty': '还没有操作记录。',
+  'activity.when': '时间',
+  'activity.who': '谁',
+  'activity.what': '操作',
+  'activity.target': '对象',
+  'activity.result': '结果',
+  'activity.ok': '成功',
+  'activity.failed': '失败',
+  'access.personalTokens': '我的 MCP 令牌',
+  'access.personalBody': '给智能体一个只属于你的令牌。它只能看到你的邮件；写令牌也只能操作你的邮件。',
+  'access.createRead': '新建只读令牌',
+  'access.createWrite': '新建写令牌',
+  'access.revoke': '撤销',
+  'access.none': '还没有个人令牌。',
+  'access.tokenShown': '现在复制这个令牌，之后不会再显示。',
+  'access.writable': '写',
+  'access.readOnly': '只读',
+  'access.totp': '两步登录',
+  'access.totpBody': '登录时额外要求验证器应用中的六位动态验证码；只有密码将不够。',
+  'access.totpOn': '已开启',
+  'access.totpOff': '未开启',
+  'access.totpEnable': '设置',
+  'access.totpDisable': '关闭',
+  'access.totpScan': '把这个密钥添加到验证器应用，然后输入它显示的六位验证码。',
+  'access.totpCode': '动态验证码',
+  'access.totpDone': '两步登录已开启。',
+  'access.totpOffDone': '两步登录已关闭。',
+  'access.totpPassword': '输入密码确认',
   'lang.face': 'EN',
   'common.save': '保存',
   'common.saving': '正在保存…',
@@ -500,6 +596,8 @@ function locale(lang: Language): Record<string, unknown> {
       defaultValue: field.defaultValue ?? '',
       placeholder: field.placeholder ?? '',
       advanced: Boolean(field.advanced),
+      personal: Boolean(field.personal),
+      overridable: Boolean(field.overridable),
       ...(field.min !== undefined ? { min: field.min } : {}),
       ...(field.max !== undefined ? { max: field.max } : {}),
       ...(field.options ? { options: field.options.map((option) => ({ value: option.value, label: words(option.label, lang) })) } : {}),
@@ -544,6 +642,7 @@ export function renderSettingsPage(
         <span class="st-crumb" id="crumb">${escapeHtml(title)}</span>
         <div class="st-header-actions">
           ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/users">${escapeHtml(d['nav.users']!)}</a>` : ''}
+          ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/activity">${escapeHtml(d['users.activityLink']!)}</a>` : ''}
           ${mode === 'settings' ? `<a class="word-btn" href="/" id="back">${escapeHtml(d['nav.back']!)}</a>` : ''}
           <button type="button" class="word-btn" id="lang">${escapeHtml(d['lang.face']!)}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn" id="signout">${escapeHtml(d['nav.signout']!)}</button></form>
@@ -634,12 +733,36 @@ body{min-height:100vh}
 .st-mb-note{font-size:12.5px;margin-top:3px}
 .st-mb-note.ok{color:var(--ok)}.st-mb-note.bad{color:var(--critical-text)}
 .st-mb-actions{display:flex;align-items:center;gap:6px}
-.st-users-main{max-width:720px}
-.st-users{list-style:none;margin:0 0 16px;padding:0;border-top:1px solid var(--line)}
-.st-user{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.st-users-main{max-width:820px}
+.st-users{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
+.st-user{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.st-user.off{opacity:.66}
+.st-avatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--accent-tint);color:var(--accent);font-weight:700;font-size:16px;text-transform:uppercase}
 .st-user-name{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
-.st-user-actions{display:flex;gap:6px;flex-wrap:wrap}
-.st-empty{color:var(--muted);font-size:14px;padding:16px 2px;border-bottom:1px solid var(--line);margin:0}
+.st-user-name strong{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.st-user-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:5px;color:var(--muted);font-size:12.5px;line-height:1.4}
+.st-user-meta span{display:inline-flex;align-items:center;gap:4px}
+.st-user-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.st-user-actions .st-btn{min-height:32px;padding:4px 10px;font-size:13px;font-weight:500}
+.st-empty{color:var(--muted);font-size:14px;padding:18px 16px;border:1px dashed var(--line-strong);border-radius:12px;margin:0;text-align:center}
+.st-users-new{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:end;gap:14px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.st-users-new .st-field{gap:5px}
+.st-users-new .st-foot{padding:0}
+.st-user-dialog .st-dialog-body{gap:12px}
+.st-user-dialog .st-note{background:var(--fill)}
+.st-user-dialog .st-field{margin:0}
+.st-users-count{margin:0;color:var(--muted);font-size:13px}
+.st-audit{width:100%;border-collapse:collapse;font-size:13.5px}
+.st-audit th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:0 10px 8px 0;border-bottom:1px solid var(--line)}
+.st-audit td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.st-audit td:first-child{white-space:nowrap;color:var(--muted);font-size:12.5px}
+.st-audit .ok{color:var(--ok);font-weight:600}
+.st-audit .bad{color:var(--critical-text);font-weight:600}
+@media (max-width:700px){
+  .st-users-new{grid-template-columns:minmax(0,1fr)}
+  .st-user{grid-template-columns:38px minmax(0,1fr);align-items:start}
+  .st-user-actions{grid-column:1 / -1;justify-content:flex-start;padding-left:48px}
+}
 .st-block{display:flex;flex-direction:column;gap:10px;padding:16px 0;border-top:1px solid var(--line)}
 .st-block:first-of-type{border-top:0;padding-top:0}
 .st-token{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 0}
@@ -700,24 +823,55 @@ body{min-height:100vh}
 
 export function renderUsersPage(
   lang: Language, nonce: string, version: string,
-  users: Array<{ id: string; username: string; role: string; disabled: boolean }>, max: number, currentID: string,
+  users: Array<{
+    id: string; username: string; role: string; disabled: boolean; createdAt: string;
+    lastLoginAt?: string; failedAttempts?: number; lockedUntil?: number; mailboxCount?: number;
+  }>, max: number, currentID: string,
 ): string {
   const d = dict(lang);
   const s = (key: string): string => escapeHtml(d[key] ?? key);
-  const rows = users.map((user) => `
-    <li class="st-user" data-id="${escapeHtml(user.id)}" data-username="${escapeHtml(user.username)}">
-      <div class="st-user-name"><strong>${escapeHtml(user.username)}</strong>
-        <span class="st-pill">${escapeHtml(user.role === 'owner' ? d['users.owner']! : d['users.member']!)}</span>
-        ${user.disabled ? `<span class="st-pill off">${s('users.disabled')}</span>` : ''}
-        ${user.id === currentID ? '<span class="st-pill set">you</span>' : ''}</div>
+  const when = (iso: string | undefined): string => {
+    if (!iso) return s('users.never');
+    const date = new Date(iso);
+    if (Number.isNaN(date.valueOf())) return s('users.never');
+    return new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  };
+  const rows = users.map((user) => {
+    const owner = user.role === 'owner';
+    const locked = Number(user.lockedUntil ?? 0) > Date.now();
+    const initial = [...(user.username.trim()[0] ?? '?')][0]!.toUpperCase();
+    return `
+    <li class="st-user${user.disabled ? ' off' : ''}" data-id="${escapeHtml(user.id)}" data-username="${escapeHtml(user.username)}">
+      <span class="st-avatar" aria-hidden="true">${escapeHtml(initial)}</span>
+      <div>
+        <div class="st-user-name"><strong>${escapeHtml(user.username)}</strong>
+          <span class="st-pill${owner ? ' set' : ''}">${escapeHtml(owner ? d['users.owner']! : d['users.member']!)}</span>
+          ${user.id === currentID ? `<span class="st-pill">${s('users.you')}</span>` : ''}
+          ${user.disabled ? `<span class="st-pill off">${s('users.disabled')}</span>` : ''}
+          ${locked ? `<span class="st-pill warn">${s('users.locked').replace('{at}', escapeHtml(when(new Date(Number(user.lockedUntil)).toISOString())))}</span>` : ''}
+        </div>
+        <div class="st-user-meta">
+          <span>${s('users.lastLogin')}: ${escapeHtml(when(user.lastLoginAt))}</span>
+          <span>${s('users.created')}: ${escapeHtml(when(user.createdAt))}</span>
+          <span>${s('users.mailboxes')}: ${Number(user.mailboxCount ?? 0)}</span>
+          ${Number(user.failedAttempts ?? 0) ? `<span>${s('users.failed').replace('{n}', String(user.failedAttempts))}</span>` : ''}
+        </div>
+      </div>
       <div class="st-user-actions">
         <button type="button" class="st-btn" data-act="rename">${s('users.rename')}</button>
         <button type="button" class="st-btn" data-act="reset">${s('users.reset')}</button>
-        ${user.role === 'owner' ? '' : `
+        ${owner ? '' : `
           <button type="button" class="st-btn" data-act="disable" data-disabled="${user.disabled ? '1' : '0'}">${user.disabled ? s('users.enable') : s('users.disable')}</button>
           <button type="button" class="st-btn danger" data-act="delete">${s('users.delete')}</button>`}
       </div>
-    </li>`).join('');
+    </li>`;
+  }).join('');
+  const words = {
+    rename: d['users.dialogRename']!, reset: d['users.dialogReset']!, delete: d['users.dialogDelete']!,
+    deleteBody: d['users.deleteBody']!, cancel: d['users.cancel']!, save: d['users.save']!,
+    confirmDelete: d['users.deleteConfirm']!, newUsername: d['users.newUsername']!,
+    newPassword: d['users.newPassword']!, passwordHelp: d['users.passwordHelp']!,
+  };
   return shell(lang, d['users.title']!, `
     <header class="st-header">
       <div class="st-header-inner">
@@ -725,6 +879,7 @@ export function renderUsersPage(
         <span class="st-crumb">${s('users.title')}</span>
         <div class="st-header-actions">
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn" href="/activity">${s('users.activityLink')}</a>
           <a class="word-btn" href="/">${s('nav.back')}</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
@@ -735,67 +890,158 @@ export function renderUsersPage(
       <section class="st-section">
         <h2>${s('users.title')}</h2>
         <p class="st-lede">${s('users.lede')}</p>
-        <ul class="st-users">${rows || `<li class="st-empty">${s('users.empty')}</li>`}</ul>
-        <p class="st-help">${users.length} / ${max}</p>
+        <ul class="st-users" id="users">${rows || `<li class="st-empty">${s('users.empty')}</li>`}</ul>
+        <p class="st-users-count">${users.length} / ${max}</p>
       </section>
       <section class="st-section">
         <h2>${s('users.create')}</h2>
-        <form class="st-form" id="create" novalidate>
+        <form class="st-users-new" id="create" novalidate>
           <div class="st-field"><label for="new-username">${s('users.username')}</label>
             <input id="new-username" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
           <div class="st-field"><label for="new-password">${s('users.password')}</label>
-            <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="${ADMIN_PASSWORD_MIN}" required></div>
-          <div class="st-foot"><span class="st-result" id="create-result"></span><button type="submit" class="st-btn primary">${s('users.add')}</button></div>
+            <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="${ADMIN_PASSWORD_MIN}" required>
+            <p class="st-help">${s('users.passwordHelp').replace('{n}', String(ADMIN_PASSWORD_MIN))}</p></div>
+          <div class="st-foot"><span class="st-result" id="create-result" role="status"></span>
+            <button type="submit" class="st-btn primary">${s('users.add')}</button></div>
         </form>
       </section>
     </main>
+    <dialog class="st-dialog st-user-dialog" id="user-dialog">
+      <form method="dialog" id="user-form">
+        <div class="st-dialog-head"><h2 id="user-dialog-title"></h2></div>
+        <div class="st-dialog-body" id="user-dialog-body"></div>
+        <div class="st-dialog-foot"><span class="st-spacer"></span>
+          <button type="button" class="st-btn" id="user-cancel">${s('users.cancel')}</button>
+          <button type="submit" class="st-btn primary" id="user-submit">${s('users.save')}</button>
+        </div>
+      </form>
+    </dialog>
     <script nonce="${nonce}">${storeLanguageScript()}
     (function () {
+      var T = ${JSON.stringify(words).replace(/</g, '\\u003c')};
+      var MIN = ${ADMIN_PASSWORD_MIN};
       var $ = function (id) { return document.getElementById(id); };
-      async function api(path, body) {
-        var response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
-        var data = await response.json().catch(function () { return {}; });
-        if (!response.ok) throw new Error(data.error || 'failed');
-        return data;
+      var dialog = $('user-dialog'), form = $('user-form'), body = $('user-dialog-body');
+      var action = '', target = '';
+      function api(path, data) {
+        return fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(data || {}) })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) throw new Error(d.error || 'failed'); return d; }); });
+      }
+      function field(label, id, type, value, help) {
+        body.innerHTML = '<label class="st-field"><span class="st-label">' + label + '</span>' +
+          '<input id="' + id + '" type="' + type + '" value="' + value.replace(/"/g, '&quot;') + '" autocomplete="' + (type === 'password' ? 'new-password' : 'off') + '" spellcheck="false">' +
+          (help ? '<span class="st-help">' + help + '</span>' : '') + '</label>';
+        var input = $(id); if (input) { input.focus(); input.select(); }
+        return input;
+      }
+      function open(act, row) {
+        action = act; target = row.dataset.id;
+        var username = row.dataset.username;
+        if (act === 'rename') {
+          $('user-dialog-title').textContent = T.rename;
+          field(T.newUsername, 'user-value', 'text', username, '');
+          $('user-submit').textContent = T.save; $('user-submit').className = 'st-btn primary';
+        } else if (act === 'reset') {
+          $('user-dialog-title').textContent = T.reset + ' · ' + username;
+          field(T.newPassword, 'user-value', 'password', '', T.passwordHelp.replace('{n}', MIN));
+          $('user-submit').textContent = T.save; $('user-submit').className = 'st-btn primary';
+        } else {
+          $('user-dialog-title').textContent = T.delete;
+          body.innerHTML = '<p class="st-note">' + T.deleteBody.replace('{name}', '<strong>' + username.replace(/</g, '&lt;') + '</strong>') + '</p>';
+          $('user-submit').textContent = T.confirmDelete; $('user-submit').className = 'st-btn danger';
+        }
+        dialog.showModal();
       }
       document.querySelectorAll('[data-act]').forEach(function (button) {
-        button.onclick = async function () {
+        button.addEventListener('click', function () {
           var row = button.closest('[data-id]');
-          var id = row.dataset.id;
-          try {
-            var act = button.dataset.act;
-            if (act === 'rename') {
-              var name = prompt('New username', row.dataset.username);
-              if (!name) return;
-              await api('/api/admin/users/rename', { id: id, username: name });
-            } else if (act === 'reset') {
-              var password = prompt('New password (at least ${ADMIN_PASSWORD_MIN} characters)');
-              if (!password) return;
-              await api('/api/admin/users/reset', { id: id, password: password });
-            } else if (act === 'disable') {
-              await api('/api/admin/users/disable', { id: id, disabled: button.dataset.disabled !== '1' });
-            } else if (act === 'delete') {
-              if (!confirm('Delete this user and all their mail state? This cannot be undone.')) return;
-              await api('/api/admin/users/delete', { id: id });
-            }
-            location.reload();
-          } catch (error) { alert(error.message); }
-        };
+          if (button.dataset.act === 'disable') {
+            api('/api/admin/users/disable', { id: row.dataset.id, disabled: button.dataset.disabled !== '1' })
+              .then(function () { location.reload(); })
+              .catch(function (error) { alert(error.message); });
+            return;
+          }
+          open(button.dataset.act, row);
+        });
       });
-      $('create').onsubmit = async function (event) {
+      $('user-cancel').addEventListener('click', function () { dialog.close(); });
+      form.addEventListener('submit', async function (event) {
         event.preventDefault();
-        var result = $('create-result');
-        result.textContent = '';
-        result.className = 'st-result';
+        var value = $('user-value') ? $('user-value').value : '';
+        var path = action === 'rename' ? '/api/admin/users/rename'
+          : action === 'reset' ? '/api/admin/users/reset'
+          : action === 'delete' ? '/api/admin/users/delete'
+          : '/api/admin/users/disable';
+        var data = action === 'rename' ? { id: target, username: value }
+          : action === 'reset' ? { id: target, password: value }
+          : action === 'delete' ? { id: target }
+          : { id: target, disabled: false };
+        try {
+          $('user-submit').disabled = true;
+          await api(path, data);
+          location.reload();
+        } catch (error) {
+          $('user-submit').disabled = false;
+          var note = body.querySelector('.st-note');
+          if (!note) { note = document.createElement('p'); note.className = 'st-note'; body.appendChild(note); }
+          note.textContent = error.message;
+        }
+      });
+      $('create').addEventListener('submit', async function (event) {
+        event.preventDefault();
+        var result = $('create-result'); result.textContent = ''; result.className = 'st-result';
         try {
           await api('/api/admin/users/create', { username: $('new-username').value, password: $('new-password').value });
           location.reload();
-        } catch (error) {
-          result.textContent = error.message;
-          result.className = 'st-result bad';
-        }
-      };
+        } catch (error) { result.textContent = error.message; result.className = 'st-result bad'; }
+      });
     })();</script>`, nonce);
+}
+
+/** The owner's audit trail: who signed in, changed settings, or touched users. */
+export function renderAuditPage(
+  lang: Language, nonce: string, version: string,
+  events: Array<{ id: number; at: string; actor: string | null; action: string; target: string | null; success: boolean; detail: string | null }>,
+): string {
+  const d = dict(lang);
+  const s = (key: string): string => escapeHtml(d[key] ?? key);
+  const when = (iso: string): string => {
+    const date = new Date(iso);
+    return Number.isNaN(date.valueOf()) ? iso
+      : new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  };
+  const rows = events.map((event) => `
+    <tr>
+      <td>${escapeHtml(when(event.at))}</td>
+      <td>${escapeHtml(event.actor ?? '—')}</td>
+      <td>${escapeHtml(event.action)}</td>
+      <td>${escapeHtml(event.target ?? '—')}${event.detail ? `<div class="st-help">${escapeHtml(event.detail)}</div>` : ''}</td>
+      <td class="${event.success ? 'ok' : 'bad'}">${s(event.success ? 'activity.ok' : 'activity.failed')}</td>
+    </tr>`).join('');
+  return shell(lang, d['activity.title']!, `
+    <header class="st-header">
+      <div class="st-header-inner">
+        <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
+        <span class="st-crumb">${s('activity.title')}</span>
+        <div class="st-header-actions">
+          <a class="word-btn" href="/users">${s('users.title')}</a>
+          <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
+          <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="st-main st-users-main">
+      <section class="st-section">
+        <h2>${s('activity.title')}</h2>
+        <p class="st-lede">${s('activity.lede')}</p>
+        ${events.length ? `<div style="overflow:auto"><table class="st-audit">
+          <thead><tr><th>${s('activity.when')}</th><th>${s('activity.who')}</th><th>${s('activity.what')}</th><th>${s('activity.target')}</th><th>${s('activity.result')}</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>` : `<p class="st-empty">${s('activity.empty')}</p>`}
+      </section>
+    </main>`, nonce);
 }
 
 
@@ -998,7 +1244,7 @@ function makeForm(id, fields, options) {
 
 function renderField(form, f) {
   var id = 'f-' + form.id + '-' + f.key;
-  var wrap = el('div', { class: 'st-field', 'data-key': f.key });
+  var wrap = el('div', { class: 'st-field', 'data-key': f.key, 'data-personal': f.personal ? '1' : '0', 'data-overridable': f.overridable ? '1' : '0' });
   var control;
   var stored = storedValue(f.key);
   var help = f.help;
@@ -1524,7 +1770,56 @@ function renderAccess(section) {
   passwordBlock.appendChild(el('p', { class: 'st-help', text: t('access.forgot') }));
   section.appendChild(passwordBlock);
 
-  var mcp = el('div', { class: 'st-block' }, el('h3', { text: t('access.mcp') }), el('p', { class: 'st-help', text: t('access.mcpBody') }),
+  var totpOn = Boolean(state.user && state.user.totpEnabled);
+  var totp = el('div', { class: 'st-block' }, el('h3', { text: t('access.totp') }),
+    el('p', { class: 'st-help', text: t('access.totpBody') }));
+  var totpStatus = el('span', { class: 'st-pill' + (totpOn ? ' set' : ''), text: totpOn ? t('access.totpOn') : t('access.totpOff') });
+  totp.appendChild(el('div', { class: 'st-inline' }, totpStatus,
+    el('button', { type: 'button', class: 'st-btn', text: totpOn ? t('access.totpDisable') : t('access.totpEnable'), onclick: function () {
+      if (totpOn) {
+        var dialog = document.getElementById('dialog');
+        var password = el('input', { type: 'password', id: 'totp-pw', autocomplete: 'current-password' });
+        var form = el('form', { method: 'dialog' },
+          el('div', { class: 'st-dialog-head' }, el('h2', { text: t('access.totpDisable') })),
+          el('div', { class: 'st-dialog-body' }, field(t('access.totpPassword'), password, null, 'totp-pw')),
+          el('div', { class: 'st-dialog-foot' }, el('span', { class: 'st-spacer' }), el('button', { type: 'submit', class: 'st-btn danger', text: t('access.totpDisable'), onclick: async function (event) {
+            event.preventDefault();
+            try { await api('/api/admin/totp/disable', { password: password.value }); dialog.close(); toast(t('access.totpOffDone')); location.reload(); }
+            catch (error) { toast(error.message, true); }
+          } })));
+        dialog.textContent = '';
+        dialog.appendChild(form);
+        dialog.showModal();
+        password.focus();
+        return;
+      }
+      (async function () {
+        try {
+          var data = await api('/api/admin/totp/setup', {});
+          var code = el('input', { type: 'text', id: 'totp-code', inputmode: 'numeric', autocomplete: 'one-time-code' });
+          var dialog = document.getElementById('dialog');
+          var form = el('form', { method: 'dialog' },
+            el('div', { class: 'st-dialog-head' }, el('h2', { text: t('access.totpEnable') })),
+            el('div', { class: 'st-dialog-body' },
+              el('p', { class: 'st-help', text: t('access.totpScan') }),
+              el('div', { class: 'st-inline' }, el('code', { class: 'st-code', text: data.secret }), copyButton(data.secret)),
+              el('p', { class: 'st-help', text: data.otpauth }),
+              field(t('access.totpCode'), code, null, 'totp-code')),
+            el('div', { class: 'st-dialog-foot' }, el('span', { class: 'st-spacer' }), el('button', { type: 'submit', class: 'st-btn primary', text: t('common.save'), onclick: async function (event) {
+              event.preventDefault();
+              try { await api('/api/admin/totp/enable', { code: code.value }); dialog.close(); toast(t('access.totpDone')); location.reload(); }
+              catch (error) { toast(error.message, true); }
+            } })));
+          dialog.textContent = '';
+          dialog.appendChild(form);
+          dialog.showModal();
+          code.focus();
+        } catch (error) { toast(error.message, true); }
+      })();
+    } })));
+  section.appendChild(totp);
+
+  var mcp = el('div', { class: 'st-block st-owner-only' }, el('h3', { text: t('access.mcp') }), el('p', { class: 'st-help', text: t('access.mcpBody') }),
     el('div', { class: 'st-field' }, el('span', { class: 'st-label', text: t('access.endpoint') }),
       el('div', { class: 'st-inline' }, el('code', { class: 'st-code', text: endpoint }), copyButton(endpoint))));
   [['read', t('access.read'), t('access.readBody')], ['write', t('access.write'), t('access.writeBody')]].forEach(function (row) {
@@ -1535,6 +1830,50 @@ function renderAccess(section) {
   });
   mcp.appendChild(el('p', { class: 'st-help', text: state.channel === 'https' ? t('access.https') : t('access.loopback') }));
   section.appendChild(mcp);
+
+  // Per-person tokens: every user may issue and revoke their own, so a
+  // household assistant can reach one mailbox without the owner's token.
+  var personal = el('div', { class: 'st-block st-personal' }, el('h3', { text: t('access.personalTokens') }),
+    el('p', { class: 'st-help', text: t('access.personalBody') }));
+  var tokenList = el('div', { class: 'st-form' });
+  personal.appendChild(tokenList);
+  var actions = el('div', { class: 'st-inline' },
+    el('button', { type: 'button', class: 'st-btn', text: t('access.createRead'), onclick: function () { issue(false); } }),
+    el('button', { type: 'button', class: 'st-btn', text: t('access.createWrite'), onclick: function () { issue(true); } }));
+  personal.appendChild(actions);
+  section.appendChild(personal);
+
+  async function loadTokens() {
+    tokenList.textContent = '';
+    try {
+      var data = await api('/api/admin/mcp-tokens');
+      if (!data.tokens.length) { tokenList.appendChild(el('p', { class: 'st-help', text: t('access.none') })); return; }
+      data.tokens.forEach(function (token) {
+        tokenList.appendChild(el('div', { class: 'st-token' },
+          el('div', null, el('div', { class: 'st-label', text: (token.writable ? t('access.writable') : t('access.readOnly')) }),
+            el('p', { class: 'st-help', text: new Date(token.createdAt).toLocaleString(lang) })),
+          el('div', { class: 'st-inline' },
+            el('button', { type: 'button', class: 'st-btn danger', text: t('access.revoke'), onclick: async function () {
+              try { await api('/api/admin/mcp-tokens/revoke', { id: token.id }); loadTokens(); } catch (error) { toast(error.message, true); }
+            } }))));
+      });
+    } catch (error) { tokenList.appendChild(el('p', { class: 'st-help', text: error.message })); }
+  }
+  async function issue(writable) {
+    try {
+      var data = await api('/api/admin/mcp-tokens/create', { writable: writable });
+      var dialog = document.getElementById('dialog');
+      var form = el('form', { method: 'dialog' },
+        el('div', { class: 'st-dialog-head' }, el('h2', { text: t('access.personalTokens') })),
+        el('div', { class: 'st-dialog-body' }, el('p', { class: 'st-help', text: t('access.tokenShown') }), el('code', { class: 'st-code', text: data.token })),
+        el('div', { class: 'st-dialog-foot' }, el('span', { class: 'st-spacer' }), copyButton(data.token), el('button', { type: 'submit', class: 'st-btn primary', text: t('common.close') })));
+      dialog.textContent = '';
+      dialog.appendChild(form);
+      dialog.showModal();
+      loadTokens();
+    } catch (error) { toast(error.message, true); }
+  }
+  loadTokens();
 }
 
 function copyButton(value) {
@@ -1614,10 +1953,17 @@ function renderSettings() {
 
 /** A member sees the shared sections, but cannot change them. */
 function markSharedReadOnly() {
-  ['ai', 'schedule', 'privacy', 'advanced', 'access'].forEach(function (id) {
+  ['ai', 'notifications', 'triage', 'schedule', 'privacy', 'sending', 'oauth', 'advanced', 'access'].forEach(function (id) {
     var node = document.getElementById(id);
     if (!node) return;
-    node.querySelectorAll('input,select,textarea,button').forEach(function (control) { control.disabled = true; });
+    // Personal fields (your own "About you", rules, language, digest hour and
+    // outputs) stay editable; only controls belonging to the whole instance
+    // are locked.
+    node.querySelectorAll('[data-key]').forEach(function (field) {
+      if (field.getAttribute('data-personal') === '1' || field.getAttribute('data-overridable') === '1') return;
+      field.querySelectorAll('input,select,textarea,button').forEach(function (control) { control.disabled = true; });
+    });
+    node.querySelectorAll('.st-owner-only input,.st-owner-only button').forEach(function (control) { control.disabled = true; });
     var note = el('p', { class: 'st-lede', text: t('shared.readOnly') });
     node.insertBefore(note, node.children[1] || null);
   });

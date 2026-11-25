@@ -6,6 +6,9 @@
 
 services:
   mailsift:
-    build: .
-    image: mailsift:local
+    build:
+      context: .
+      args:
+        MAILSIFT_VERSION: ${MAILSIFT_VERSION:-local}
+    image: mailsift:${MAILSIFT_VERSION:-local}
     pull_policy: never

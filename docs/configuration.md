@@ -1,6 +1,6 @@
 # Configuration
 
-Everything is configured in the web view, under **Settings** (the gear icon in the mail view, or `/settings`), signed in with the administrator password. The sections are Mailboxes, AI model, Notifications, Triage rules, Checking and digest, Privacy and retention, Web mail, Access and Advanced; the less common settings of a section are under its **More options**. Each field has its default as a placeholder and a line of help. This page explains what needs more than that.
+Everything is configured in the web view, under **Settings** (the gear icon in the mail view, or `/settings`), signed in with your username and password. A member sees shared controls greyed out and can edit the personal ones: **About you**, sender rules, summary language, push threshold, digest schedule and personal Feishu/webhook outputs. See [Multiple people](multi-user.md). The sections are Mailboxes, AI model, Notifications, Triage rules, Checking and digest, Privacy and retention, Web mail, Access and Advanced; the less common settings of a section are under its **More options**. Each field has its default as a placeholder and a line of help. This page explains what needs more than that.
 
 A setting is named here by its section and label. The key the code reads is given in backticks where it helps, because the log and `--check` use it. How a save is applied, and which saves restart the service, is in [Deployment](deployment.md#how-saved-settings-are-applied).
 

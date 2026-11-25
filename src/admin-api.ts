@@ -24,7 +24,8 @@ import { scopeAllowsSending } from './smtp.js';
 import {
   ACCESS_TOKEN_KEYS, checkField, crossFieldProblems, FIELD_BY_KEY, SECRET_KEYS, words, type FieldProblem,
 } from './settings-catalog.js';
-import { renderClaimPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
+import { renderAuditPage, renderClaimPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
+import { otpauthUrl } from './services/totp.js';
 import { sendTestNotification } from './services/sink.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
 import { aiGatewayHeaders } from './services/decider.js';
@@ -35,10 +36,12 @@ import {
   applySettings, differsFromBootAll, isOAuthProvider, mailboxReadiness,
 } from './services/settings-runtime.js';
 import {
-  ADMIN_PASSWORD_MIN, changeUserPassword, claimOwner, countUsers, createUser, deleteUser, endOtherUserSessions, listUsers,
+  ADMIN_PASSWORD_MIN, beginTotp, changeUserPassword, claimOwner, countUsers, createUser, createUserMcpToken, deleteUser,
+  disableTotp, enableTotp, endOtherUserSessions, listAdminAudit, listUserMcpTokens, listUsers, LlmOverrideDenied,
+  mailboxAddresses, revokeUserMcpToken, totpEnabledFor, verifyUserPassword,
   MailboxConflictError, MAX_USERS, newAccessToken, newMailboxId, ownerClaimed, passwordProblem, readSettingsFor,
-  renameUser, resetUserPassword, savePendingSignIn, sessionUser, setUserDisabled, SharedSettingsDenied,
-  startUserSession, takePendingSignIn, updateSettingsFor, userByID, usernameProblem, usernameShapeProblem,
+  recordAdminAudit, renameUser, resetUserPassword, savePendingSignIn, sessionUser, setUserDisabled,
+  SharedSettingsDenied, startUserSession, takePendingSignIn, updateSettingsFor, userByID, usernameProblem, usernameShapeProblem,
   type MailboxSettings, type PendingSignIn, type SettingsDocument, type User,
 } from './services/settings-store.js';
 import { removeStore, storePathFor, StateStore } from './services/state.js';
@@ -168,7 +171,7 @@ function statePayload(req: IncomingMessage, doc: SettingsDocument, user?: User):
     values,
     secrets,
     readOnlyShared: !owner,
-    user: user ? { username: user.username, role: user.role } : undefined,
+    user: user ? { username: user.username, role: user.role, totpEnabled: Boolean(user.totpEnabled) } : undefined,
     mailboxes: doc.mailboxes.map((mailbox) => safeMailbox(mailbox, authorized)),
     tokens: owner
       ? { read: Boolean(doc.values['MCP_TOKEN']), write: Boolean(doc.values['MCP_WRITE_TOKEN']) }
@@ -199,12 +202,19 @@ function restartForUsers(reason: string): Applied {
 }
 
 function apply(doc: SettingsDocument, reason: string): Applied {
+  return applyForUser(doc, 'owner', reason);
+}
+
+function applyForUser(_doc: SettingsDocument, _userID: string, reason: string): Applied {
   const authorized = authorizedUsernames();
   if (serverMode() === 'setup') {
-    applySettings(doc, authorized);
+    // Only the owner runs the first-run wizard. A member's save is already in
+    // the database and every watcher is built from it on the next start.
+    applySettings(_doc, authorized);
     return 'none';
   }
-  // Every enabled user's mailboxes are part of what a restart would change.
+  // Every enabled user's mailboxes and personal triage settings are part of
+  // what a restart would change.
   if (!differsFromBootAll(authorized)) return restartState().pending ? 'scheduled' : 'none';
   return requestRestart(reason);
 }
@@ -370,7 +380,8 @@ function returnOrigin(req: IncomingMessage): string {
 
 async function finishSignIn(pending: PendingSignIn, code: string, lang: Language): Promise<{ ok: true; applied: Applied } | { ok: false; message: string }> {
   const zh = lang === 'zh-CN';
-  const doc = readSettingsFor('owner');
+  const ownerID = pending.userID ?? 'owner';
+  const doc = readSettingsFor(ownerID);
   const mailbox = doc.mailboxes.find((m) => m.id === pending.mailboxId);
   const auth = mailbox ? oauthKind(mailbox.provider) : undefined;
   if (!mailbox || !auth || mailbox.username !== pending.username) {
@@ -388,7 +399,7 @@ async function finishSignIn(pending: PendingSignIn, code: string, lang: Language
     const detail = error instanceof Error ? error.message.slice(0, 240) : '';
     return { ok: false, message: (zh ? '换取授权令牌失败：' : 'The provider did not hand over a token: ') + detail };
   }
-  return { ok: true, applied: apply(readSettingsFor('owner'), 'a mailbox was authorized') };
+  return { ok: true, applied: applyForUser(readSettingsFor(ownerID), ownerID, 'a mailbox was authorized') };
 }
 
 function callbackParams(raw: string): URLSearchParams | undefined {
@@ -469,7 +480,7 @@ async function testModel(values: Record<string, string>, lang: Language): Promis
 // Routes
 // ---------------------------------------------------------------------------
 
-const PAGES = new Set(['/setup', '/settings', '/users']);
+const PAGES = new Set(['/setup', '/settings', '/users', '/activity']);
 
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
@@ -488,9 +499,14 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   if (isPage) {
     if (!ownerClaimed()) return htmlPage(renderClaimPage(lang, ctx.nonce, ctx.version), ctx.nonce);
     if (!ctx.user) return redirect(`/signin?next=${encodeURIComponent(path + url.search)}`);
+    if (path === '/activity') {
+      if (ctx.user.role !== 'owner') return redirect('/settings');
+      return htmlPage(renderAuditPage(lang, ctx.nonce, ctx.version, listAdminAudit(200)), ctx.nonce);
+    }
     if (path === '/users') {
       if (ctx.user.role !== 'owner') return redirect('/settings');
-      return htmlPage(renderUsersPage(lang, ctx.nonce, ctx.version, listUsers(), MAX_USERS, ctx.user.id), ctx.nonce);
+      const users = listUsers().map((user) => ({ ...user, mailboxCount: mailboxAddresses(user.id).length }));
+      return htmlPage(renderUsersPage(lang, ctx.nonce, ctx.version, users, MAX_USERS, ctx.user.id), ctx.nonce);
     }
     const doc = readSettingsFor(ctx.user.id);
     if (path === '/settings' && !doc.setupCompletedAt) return redirect('/setup');
@@ -518,6 +534,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     const session = claimOwner(code, username, password);
     if (!session) return fail(401, 'invalid_code', zh ? '设置码或用户名不正确，或已失效。请查看服务日志中最新的设置码。' : 'That setup code or username is wrong or no longer valid. Use the latest one in the service log.');
     log.info('The owner account was claimed with the one-time setup code.');
+    recordAdminAudit({ action: 'claim', target: username.slice(0, 64), success: true });
     return { ...ok({ claimed: true }), cookie: adminCookie(req, session) };
   }
 
@@ -525,6 +542,14 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
 
   if (path === '/api/admin/state' && req.method === 'GET') {
     return ok(statePayload(req, readSettingsFor(ctx.user.id), ctx.user));
+  }
+
+  if (path === '/api/admin/mcp-tokens' && req.method === 'GET') {
+    return ok({ tokens: listUserMcpTokens(ctx.user.id) });
+  }
+
+  if (path === '/api/admin/totp' && req.method === 'GET') {
+    return ok({ enabled: totpEnabledFor(ctx.user.id) });
   }
 
   if (path === '/api/admin/users' && req.method === 'GET') {
@@ -539,9 +564,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     || path.startsWith('/api/admin/users/')
     || path === '/api/admin/test/notifications'
     || path === '/api/admin/test/model'
-    || path === '/api/admin/tokens/rotate'
-    || path === '/api/admin/oauth/start'
-    || path === '/api/admin/oauth/finish';
+    || path === '/api/admin/tokens/rotate';
   if (ctx.user.role !== 'owner' && ownerOnly) {
     return fail(403, 'owner_required', zh ? '只有管理员可以修改这些设置。' : 'Only the owner can change these settings.');
   }
@@ -563,10 +586,16 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
           d.values = merged.values;
         });
       } catch (error) {
+        if (error instanceof LlmOverrideDenied) {
+          return fail(400, 'llm_key_required',
+            zh ? '选择自己的模型前，请先填写自己的 API Key。' : 'Add your own API key before choosing your own model.',
+            { errors: { LLM_API_KEY: zh ? '使用自己的模型需要自己的 Key。' : 'Your own model needs your own key.' } });
+        }
         if (!(error instanceof NotSaved)) throw error;
         return fail(400, 'invalid', zh ? '有设置需要修改。' : 'Some settings need attention.', { errors });
       }
       const applied = apply(doc, 'settings were saved');
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'settings.save', success: true });
       return ok({ saved: true, applied, state: statePayload(req, doc, ctx.user) });
     }
 
@@ -660,6 +689,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       const verifier = randomBytes(48).toString('base64url');
       const state = randomBytes(24).toString('base64url');
       savePendingSignIn(state, {
+        userID: ctx.user.id,
         mailboxId: mailbox.id, username: mailbox.username, verifier, redirectUri, scope: provider.scope,
         returnTo: returnOrigin(req), expiresAt: Date.now() + OAUTH_TTL_MS,
       });
@@ -725,8 +755,51 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       const token = newAccessToken();
       const doc = updateSettingsFor(ctx.user.id, (d) => { d.values[key] = token; });
       log.info(`The MCP ${kind} token was replaced from the settings page.`);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'token.rotate', target: kind, success: true });
       const applied = apply(doc, `the MCP ${kind} token was replaced`);
       return ok({ token, applied, state: statePayload(req, doc, ctx.user) });
+    }
+
+    case '/api/admin/totp/setup': {
+      if (totpEnabledFor(ctx.user.id)) return fail(409, 'already_on', 'two-step sign-in is already on');
+      const secret = beginTotp(ctx.user.id);
+      return ok({ secret, otpauth: otpauthUrl(ctx.user.username, secret) });
+    }
+
+    case '/api/admin/totp/enable': {
+      const code = text(body['code'], 20);
+      if (!enableTotp(ctx.user.id, code)) return fail(400, 'bad_code', zh ? '动态验证码不正确。' : 'That authenticator code is not right.');
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'totp.enable', success: true });
+      return ok({ enabled: true });
+    }
+
+    case '/api/admin/totp/disable': {
+      const password = typeof body['password'] === 'string' ? body['password'] as string : '';
+      if (!verifyUserPassword(ctx.user.id, password)) return fail(401, 'not_accepted', zh ? '密码不正确。' : 'The password is not right.');
+      disableTotp(ctx.user.id);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'totp.disable', success: true });
+      return ok({ enabled: false });
+    }
+
+    case '/api/admin/mcp-tokens/create': {
+      if (!allowTest(ctx.client)) return fail(429, 'rate_limited', zh ? '操作太频繁，请稍后再试。' : 'Too many attempts; wait a moment.');
+      const writable = body['writable'] === true;
+      const created = createUserMcpToken(ctx.user.id, writable);
+      log.info(`Created a ${writable ? 'write' : 'read'} MCP token for ${ctx.user.username}.`);
+      recordAdminAudit({
+        actorID: ctx.user.id, actor: ctx.user.username, action: 'mcp-token.create',
+        target: writable ? 'write' : 'read', success: true,
+      });
+      return ok({ token: created.token, id: created.id, writable });
+    }
+
+    case '/api/admin/mcp-tokens/revoke': {
+      const id = text(body['id'], 128);
+      if (!revokeUserMcpToken(ctx.user.id, id)) return fail(404, 'not_found', 'token not found');
+      recordAdminAudit({
+        actorID: ctx.user.id, actor: ctx.user.username, action: 'mcp-token.revoke', target: id.slice(0, 16), success: true,
+      });
+      return ok({ revoked: true, tokens: listUserMcpTokens(ctx.user.id) });
     }
 
     case '/api/admin/password': {
@@ -736,6 +809,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       if (!allowClaimPerClient(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试次数过多，请一分钟后再试。' : 'Too many attempts. Wait a minute.');
       if (!changeUserPassword(ctx.user.id, current, next)) return fail(401, 'not_accepted', zh ? '当前密码不正确。' : 'The current password is not right.');
       log.info('A password was changed; that user\'s other sessions were signed out.');
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'password.change', success: true });
       // Nothing subscribed before the change should keep receiving mail.
       const own = new StateStore(storePathFor(ctx.user.id));
       try { own.prunePushSubscriptions([]); } finally { own.close(); }
@@ -764,6 +838,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       const created = createUser(username, password);
       if (!created) return fail(400, 'invalid', zh ? '无法创建这个用户。' : 'That user could not be created.');
       log.info(`Created member ${created.username}.`);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'user.create', target: created.username, success: true });
       return ok({ created: true, user: created, users: listUsers(), applied: restartForUsers('a user was created') });
     }
 
@@ -781,6 +856,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         try { own.prunePushSubscriptions([]); } finally { own.close(); }
       }
       log.info(`${disabled ? 'Disabled' : 'Enabled'} member ${target.username}.`);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: disabled ? 'user.disable' : 'user.enable', target: target.username, success: true });
       return ok({ saved: true, users: listUsers(), applied: restartForUsers('a user was changed') });
     }
 
@@ -794,6 +870,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       }
       if (!resetUserPassword(id, password)) return fail(400, 'invalid', zh ? '无法重置这个密码。' : 'That password could not be set.');
       log.info(`Reset the password for ${target.username}.`);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'user.reset-password', target: target.username, success: true });
       return ok({ saved: true, users: listUsers() });
     }
 
@@ -806,6 +883,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         return fail(400, 'invalid', zh ? '这个用户名不可用。' : 'That username is not available.');
       }
       log.info(`Renamed ${target.username}.`);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'user.rename', target: username.slice(0, 64), success: true });
       return ok({ saved: true, users: listUsers() });
     }
 
@@ -820,6 +898,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       forgetLive();
       forgetSends();
       log.info(`Deleted member ${target.username} and their mail state.`);
+      recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'user.delete', target: target.username, success: true });
       return ok({ deleted: true, users: listUsers(), applied: restartForUsers('a user was deleted') });
     }
 
