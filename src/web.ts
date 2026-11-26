@@ -990,6 +990,10 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
       ${sheetHead('action-title', 'action.title', 'action-done')}
       <div class="sheet-body" id="action-body"></div>
     </dialog>
+    <dialog id="task-sheet" class="sheet" aria-labelledby="task-title" tabindex="-1">
+      ${sheetHead('task-title', 'action.taskDetail', 'task-done')}
+      <div class="sheet-body" id="task-body"></div>
+    </dialog>
     <dialog id="keys-sheet" class="sheet" aria-labelledby="keys-title" tabindex="-1">
       ${sheetHead('keys-title', 'keys.title', 'keys-done')}
       <div class="sheet-body"></div>

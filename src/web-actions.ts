@@ -2032,6 +2032,49 @@ async function handleTaskSuggest(req: IncomingMessage, store: StateStore, ctx: A
   }
 }
 
+/** Create one task per selected message, drafting each from the model when it is available. */
+async function handleTasksFromMessages(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
+  if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
+  const body = await readJson(req, 32 * 1024);
+  const keys = Array.isArray(body?.['keys'])
+    ? [...new Set((body['keys'] as unknown[]).filter((key): key is string => typeof key === 'string').map((key) => key.trim()).filter(Boolean))].slice(0, 10)
+    : [];
+  if (!keys.length) return badRequest('keys are required');
+  const created = [];
+  const skipped = [];
+  for (const key of keys) {
+    const row = store.getMail(key);
+    if (!row) { skipped.push(key); continue; }
+    const fallback = {
+      title: (row.subject || row.summary || '').slice(0, 120) || 'Follow up',
+      notes: (row.summary || '').slice(0, 500),
+      dueAt: '',
+    };
+    let suggestion = fallback;
+    if (assistantConfigured()) {
+      try {
+        suggestion = await withLlmConfig(llmConfigForUser(currentUserID()), () => suggestTask({
+          subject: row.subject ?? '',
+          from: row.senderName ? `${row.senderName} <${row.sender ?? ''}>` : row.sender ?? '',
+          ...(row.mailDate ? { date: row.mailDate } : {}),
+          text: [row.summary, row.snippet].filter(Boolean).join('\n\n'),
+          lang: ctx.lang,
+        }));
+      } catch { /* the local fields are still a useful task */ }
+    }
+    created.push(store.createTask({
+      title: suggestion.title || fallback.title,
+      notes: suggestion.notes,
+      dueAt: suggestion.dueAt,
+      messageKey: key,
+      ...(row.account ? { account: row.account } : {}),
+      ...(row.messageId ? { messageId: row.messageId } : {}),
+    }));
+    store.recordMcpAudit('web:task-create', ctx.client, true, key);
+  }
+  return json(200, { created, skipped });
+}
+
 async function handleTaskCreate(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
   if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
   const body = await readJson(req, 16 * 1024);
@@ -2102,6 +2145,7 @@ export async function routeActions(
       if (path === '/api/forward' && req.method === 'GET') return handleForward(url.searchParams, store, ctx);
       if (req.method !== 'POST') return undefined;
       if (path === '/api/tasks/suggest') return handleTaskSuggest(req, store, ctx);
+      if (path === '/api/tasks/from-messages') return handleTasksFromMessages(req, store, ctx);
       if (path === '/api/tasks/create') return handleTaskCreate(req, store, ctx);
       if (path === '/api/tasks/update') return handleTaskUpdate(req, store, ctx);
       if (path === '/api/tasks/delete') return handleTaskDelete(req, store, ctx);

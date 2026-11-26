@@ -9,6 +9,7 @@ describe('action centre', { timeout: 20_000 }, () => {
     const state = store();
     const task = state.createTask({ title: 'Pay the invoice', dueAt: '2026-12-01T09:00:00.000Z' });
     expect(state.listTasks().map((row) => row.title)).toEqual(['Pay the invoice']);
+    expect(state.listTasks()[0]?.dueAt).toBe('2026-12-01T09:00:00.000Z');
     expect(state.tasksSummary().open).toBe(1);
     const done = state.updateTask(task.id, { status: 'done' });
     expect(done?.status).toBe('done');

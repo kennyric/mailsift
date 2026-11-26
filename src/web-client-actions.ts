@@ -7,10 +7,13 @@ export function actionsPart(): string {
   return String.raw`
 // ---- Action centre ----
 const actionSheet = $('#action-sheet'), actionBody = $('#action-body'), actionOpen = $('#actions-open');
+const taskSheet = $('#task-sheet'), taskBody = $('#task-body');
 const actionPeek = $('#action-peek'), actionBadge = $('#actions-count');
 let actionLoading = false;
 let taskDraft = null;
 let taskSuggestSeq = 0;
+const selectedDeadlines = new Set();
+let bulkAddButton = null;
 
 function localDueInput(value) {
   if (!value) return '';
@@ -57,7 +60,9 @@ function actionEmpty(text) {
 function actionDate(value) {
   if (!value) return '';
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? '' : date.toLocaleDateString(lang, { month: 'short', day: 'numeric' });
+  return Number.isNaN(date.valueOf()) ? '' : date.toLocaleString(lang, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 function drawTask(task, redraw) {
@@ -72,12 +77,17 @@ function drawTask(task, redraw) {
     if (!answer.ok) toast((answer.data && answer.data.error) || t('error.taskFailed'), true);
     await redraw();
   };
-  const copy = el('div', 'action-copy');
+  const copy = el('div', 'action-copy action-clickable');
   const title = el('div', 'action-title', task.title);
   if (task.status === 'done') title.style.textDecoration = 'line-through';
   copy.appendChild(title);
-  const meta = [task.dueAt ? t('action.dueTask', { at: actionDate(task.dueAt) }) : ''].filter(Boolean).join(' · ');
-  if (meta) copy.appendChild(el('div', 'action-meta', meta));
+  const dueText = actionDate(task.dueAt);
+  copy.appendChild(el('div', 'action-meta action-due-line',
+    dueText ? t('action.dueTask', { at: dueText }) : t('action.noDue')));
+  copy.onclick = (event) => {
+    if (event.target.closest('button, a, input')) return;
+    openTaskDetail(task);
+  };
   const tools = el('div', 'action-tools');
   const remove = el('button', 'text-btn quiet small', t('action.delete'));
   remove.type = 'button';
@@ -94,12 +104,27 @@ function drawTask(task, redraw) {
 
 function drawDeadline(row, redraw) {
   const item = el('div', 'action-row');
+  const lead = el('span', 'action-lead');
   const dot = el('span', 'mark ' + (row.importance === 'critical' ? 'critical' : row.importance === 'warning' ? 'warning' : 'info'));
+  const pick = el('input');
+  pick.type = 'checkbox';
+  pick.checked = selectedDeadlines.has(row.dedupKey);
+  pick.setAttribute('aria-label', t('action.selectHint'));
+  pick.onchange = () => {
+    if (pick.checked) selectedDeadlines.add(row.dedupKey);
+    else selectedDeadlines.delete(row.dedupKey);
+    syncBulkAdd();
+  };
+  lead.append(dot, pick);
   const copy = el('div', 'action-copy');
   copy.appendChild(el('div', 'action-title', row.subject || row.summary || '(no subject)'));
   copy.appendChild(el('div', 'action-meta', [row.deadline, row.senderName || row.sender].filter(Boolean).join(' · ')));
   const tools = el('div', 'action-tools');
   if (row.dedupKey) {
+    const add = el('button', 'text-btn small', t('action.quickAdd'));
+    add.type = 'button';
+    add.onclick = () => addTasksFromMessages([row.dedupKey], redraw, add);
+    tools.appendChild(add);
     const open = el('button', 'text-btn small', t('action.openMessage'));
     open.type = 'button';
     open.onclick = () => {
@@ -108,8 +133,30 @@ function drawDeadline(row, redraw) {
     };
     tools.appendChild(open);
   }
-  item.append(dot, copy, tools);
+  item.append(lead, copy, tools);
   return item;
+}
+
+function syncBulkAdd() {
+  if (!bulkAddButton) return;
+  bulkAddButton.hidden = selectedDeadlines.size === 0;
+  bulkAddButton.textContent = t('action.addSelected');
+}
+
+async function addTasksFromMessages(keys, redraw, button) {
+  if (!keys.length) return;
+  if (button) { button.disabled = true; button.textContent = t('action.adding'); }
+  try {
+    const answer = await post('/api/tasks/from-messages', { keys });
+    if (!answer.ok) throw new Error((answer.data && answer.data.error) || t('error.taskFailed'));
+    const created = answer.data && answer.data.created ? answer.data.created.length : 0;
+    for (const key of keys) selectedDeadlines.delete(key);
+    toast(created > 1 ? t('action.multipleSaved', { n: created }) : t('action.savedToast'));
+    await redraw();
+  } catch (error) {
+    toast(error.message || t('error.taskFailed'), true);
+    if (button) { button.disabled = false; button.textContent = t('action.quickAdd'); }
+  }
 }
 
 function drawFollowUp(row) {
@@ -209,8 +256,23 @@ async function drawActionCenter() {
     else data.followUps.forEach((row) => actionBody.appendChild(drawFollowUp(row)));
 
     actionBody.appendChild(actionHeading(t('action.deadlines')));
-    if (!data.deadlines.length) actionBody.appendChild(actionEmpty(t('action.empty')));
-    else data.deadlines.forEach((row) => actionBody.appendChild(drawDeadline(row, redraw)));
+    for (const key of [...selectedDeadlines]) {
+      if (!data.deadlines.some((row) => row.dedupKey === key)) selectedDeadlines.delete(key);
+    }
+    if (!data.deadlines.length) {
+      bulkAddButton = null;
+      actionBody.appendChild(actionEmpty(t('action.empty')));
+    } else {
+      const bulk = el('div', 'action-bulk');
+      bulk.appendChild(el('span', 'action-bulk-hint', t('action.selectHint')));
+      bulkAddButton = el('button', 'text-btn', t('action.addSelected'));
+      bulkAddButton.type = 'button';
+      bulkAddButton.hidden = selectedDeadlines.size === 0;
+      bulkAddButton.onclick = () => addTasksFromMessages([...selectedDeadlines], redraw, bulkAddButton);
+      bulk.appendChild(bulkAddButton);
+      actionBody.appendChild(bulk);
+      data.deadlines.forEach((row) => actionBody.appendChild(drawDeadline(row, redraw)));
+    }
   } catch (error) {
     actionBody.textContent = '';
     actionBody.appendChild(el('p', 'inline-error', error.message || t('error.taskFailed')));
@@ -219,6 +281,87 @@ async function drawActionCenter() {
   }
 }
 
+function detailField(labelText, control) {
+  const box = el('label', 'action-detail-field');
+  box.appendChild(el('span', 'action-detail-label', labelText));
+  box.appendChild(control);
+  return box;
+}
+
+function openTaskDetail(task) {
+  taskBody.replaceChildren();
+  const form = el('form', 'action-detail');
+  const title = el('input');
+  title.type = 'text';
+  title.value = task.title;
+  title.setAttribute('aria-label', t('action.taskTitle'));
+  const notes = el('textarea');
+  notes.rows = 3;
+  notes.value = task.notes || '';
+  notes.setAttribute('aria-label', t('action.notes'));
+  const due = el('input');
+  due.type = 'datetime-local';
+  due.value = localDueInput(task.dueAt);
+  due.setAttribute('aria-label', t('action.due'));
+  const done = el('input');
+  done.type = 'checkbox';
+  done.checked = task.status === 'done';
+  const doneLine = el('label', 'action-detail-check');
+  doneLine.append(done, el('span', null, t('action.markDone')));
+  const buttons = el('div', 'action-detail-actions');
+  const save = el('button', 'primary-action', t('action.saveTask'));
+  save.type = 'submit';
+  const remove = el('button', 'text-btn danger', t('action.delete'));
+  remove.type = 'button';
+  remove.onclick = async () => {
+    remove.disabled = true;
+    const answer = await post('/api/tasks/delete', { id: task.id });
+    if (!answer.ok) toast((answer.data && answer.data.error) || t('error.taskFailed'), true);
+    else {
+      closeSheet(taskSheet, false);
+      if (actionSheet.open) drawActionCenter();
+    }
+  };
+  buttons.append(save, remove);
+  if (task.messageKey) {
+    const open = el('button', 'text-btn', t('action.openMessage'));
+    open.type = 'button';
+    open.onclick = () => {
+      closeSheet(taskSheet, false);
+      if (actionSheet.open) closeSheet(actionSheet, false);
+      openFromLink(task.messageKey, false);
+    };
+    buttons.appendChild(open);
+  }
+  form.append(
+    detailField(t('action.taskTitle'), title),
+    detailField(t('action.notes'), notes),
+    detailField(t('action.due'), due),
+    doneLine,
+    buttons,
+  );
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!title.value.trim()) { title.focus(); return; }
+    save.disabled = true;
+    const answer = await post('/api/tasks/update', {
+      id: task.id,
+      title: title.value,
+      notes: notes.value,
+      dueAt: due.value ? new Date(due.value).toISOString() : '',
+      status: done.checked ? 'done' : 'open',
+    });
+    save.disabled = false;
+    if (!answer.ok) toast((answer.data && answer.data.error) || t('error.taskFailed'), true);
+    else {
+      toast(t('action.updatedToast'));
+      closeSheet(taskSheet, false);
+      if (actionSheet.open) drawActionCenter();
+    }
+  };
+  taskBody.appendChild(form);
+  openSheet(taskSheet, { hash: '#task=' + task.id });
+}
 function openActionCenter() {
   openSheet(actionSheet, { hash: '#actions' });
   drawActionCenter();
@@ -232,10 +375,14 @@ const actionDone = $('#action-done');
 if (actionDone) actionDone.onclick = () => closeSheet(actionSheet, false);
 // This sheet is created after the generic sheet wiring, so it gets the same
 // dismiss gestures here: swipe the head down, tap the backdrop, or Escape.
-actionSheet.addEventListener('cancel', (event) => { event.preventDefault(); closeSheet(actionSheet, false); });
-actionSheet.addEventListener('click', (event) => {
-  if (event.target === actionSheet) closeSheet(actionSheet, false);
-});
-enableDrag(actionSheet);
+for (const dialog of [actionSheet, taskSheet]) {
+  dialog.addEventListener('cancel', (event) => { event.preventDefault(); closeSheet(dialog, false); });
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) closeSheet(dialog, false);
+  });
+  enableDrag(dialog);
+}
+const taskDone = $('#task-done');
+if (taskDone) taskDone.onclick = () => closeSheet(taskSheet, false);
 `;
 }
