@@ -1080,6 +1080,7 @@ function openMenu(key, anchor) {
   }
   item('i-star', t(flags.flagged ? 'act.unstar' : 'act.star'), () => mailAction(key, flags.flagged ? 'unstar' : 'star'));
   item('i-read', t(flags.seen === false ? 'act.markRead' : 'act.markUnread'), () => mailAction(key, flags.seen === false ? 'mark_read' : 'mark_unread'));
+  if (archivable(row)) item('i-archive', t('act.archive'), () => mailAction(key, 'archive'));
   // Any folder of its mailbox, from the panel of folders, under the control that opened this menu.
   item('i-folder', t('act.moveTo'), () => {
     closeSheet(menuSheet, false);
@@ -1122,11 +1123,11 @@ function fillBar(bar, row, wide) {
   // Done and later are the queue's, so only a stored message has them; one listed live answers to the rest.
   const markable = !row.live || row.stored;
   if (markable) bar.appendChild(barButton('i-check', t(row.handledAt ? 'act.undone' : 'act.done'), () => complete(queueKey(row), null, Boolean(row.handledAt)), 'primary' + (row.handledAt ? ' on' : '')));
-  if (markable && row.dedupKey) bar.appendChild(barButton('i-task', t('action.addTask'), () => openTaskFor(row), 'icon-only'));
+  if (markable && row.dedupKey) bar.appendChild(barButton('i-task', t('action.addTask'), () => openTaskFor(row), 'task-btn'));
   bar.appendChild(barButton('i-reply', t('act.reply'), () => startReply(key, 'reply'), markable ? '' : 'primary'));
   if (wide) bar.appendChild(barButton('i-reply-all', t('act.replyAll'), () => startReply(key, 'replyAll'), 'icon-only'));
-  // Filed in the archive already, it is not archived again.
-  if (archivable(row)) bar.appendChild(barButton('i-archive', t('act.archive'), () => mailAction(key, 'archive'), wide ? 'icon-only' : ''));
+  // On a phone Archive is under "more"; the bar has room for the task action instead.
+  if (wide && archivable(row)) bar.appendChild(barButton('i-archive', t('act.archive'), () => mailAction(key, 'archive'), 'icon-only'));
   if (wide) bar.appendChild(barButton('i-star', t(flags.flagged ? 'act.unstar' : 'act.star'), () => mailAction(key, flags.flagged ? 'unstar' : 'star'), 'icon-only' + (flags.flagged ? ' lit' : '')));
   // On a desk there is room for it beside the star; on a phone it is under "more".
   if (wide && !row.handledAt && markable) {

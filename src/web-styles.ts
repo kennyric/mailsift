@@ -499,6 +499,8 @@ body.offline #refresh,body.offline .load-more{opacity:.4;pointer-events:none}
 .action-bulk{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 0 8px;border-bottom:1px solid var(--line);margin-bottom:2px}
 .action-bulk-hint{font-size:12px;color:var(--muted)}
 .action-bulk .text-btn{min-height:32px;padding:4px 8px;font-size:12px}
+.action-add{border:1px solid var(--line-strong);border-radius:999px;background:var(--surface);color:var(--accent);font-weight:600;padding:4px 10px}
+.action-add:hover{background:var(--accent-tint);border-color:var(--accent)}
 .action-lead{display:flex;align-items:center;gap:6px}
 .action-lead>input[type=checkbox]{width:17px;height:17px;margin:0;accent-color:var(--accent)}
 .action-due-line{color:var(--warning-text)}
@@ -588,6 +590,8 @@ button.digest-item{cursor:pointer;border-radius:6px}
 .bar-btn.primary.on{background:var(--fill);color:var(--text)}.bar-btn.primary.on .icon{color:var(--ok)}
 .bar-btn.icon-only{min-width:44px;padding:0}.bar-btn.icon-only span{display:none}
 .bar-btn.lit{color:var(--warning)}.bar-btn.lit .icon{fill:currentColor}
+.bar-btn.task-btn{padding:0 8px;font-size:13px;color:var(--text-2)}
+.bar-btn.task-btn .icon{color:var(--accent)}
 /* A message that is put off: its clock in the accent, drawn and not filled. */
 .bar-btn.snooze-btn.lit{color:var(--accent)}.bar-btn.snooze-btn.lit .icon{fill:none}
 .bar-btn.quiet{color:var(--muted)}

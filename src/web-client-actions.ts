@@ -83,7 +83,7 @@ function drawTask(task, redraw) {
   copy.appendChild(title);
   const dueText = actionDate(task.dueAt);
   copy.appendChild(el('div', 'action-meta action-due-line',
-    dueText ? t('action.dueTask', { at: dueText }) : t('action.noDue')));
+    dueText ? fill('action.dueTask', { at: dueText }) : t('action.noDue')));
   copy.onclick = (event) => {
     if (event.target.closest('button, a, input')) return;
     openTaskDetail(task);
@@ -116,22 +116,22 @@ function drawDeadline(row, redraw) {
     syncBulkAdd();
   };
   lead.append(dot, pick);
-  const copy = el('div', 'action-copy');
+  const copy = el('div', 'action-copy action-clickable');
   copy.appendChild(el('div', 'action-title', row.subject || row.summary || '(no subject)'));
   copy.appendChild(el('div', 'action-meta', [row.deadline, row.senderName || row.sender].filter(Boolean).join(' · ')));
-  const tools = el('div', 'action-tools');
   if (row.dedupKey) {
-    const add = el('button', 'text-btn small', t('action.quickAdd'));
-    add.type = 'button';
-    add.onclick = () => addTasksFromMessages([row.dedupKey], redraw, add);
-    tools.appendChild(add);
-    const open = el('button', 'text-btn small', t('action.openMessage'));
-    open.type = 'button';
-    open.onclick = () => {
+    copy.onclick = (event) => {
+      if (event.target.closest('button, a, input')) return;
       closeSheet(actionSheet, false);
       openFromLink(row.dedupKey, false);
     };
-    tools.appendChild(open);
+  }
+  const tools = el('div', 'action-tools');
+  if (row.dedupKey) {
+    const add = el('button', 'text-btn small action-add', t('action.quickAdd'));
+    add.type = 'button';
+    add.onclick = () => addTasksFromMessages([row.dedupKey], redraw, add);
+    tools.appendChild(add);
   }
   item.append(lead, copy, tools);
   return item;
@@ -151,7 +151,7 @@ async function addTasksFromMessages(keys, redraw, button) {
     if (!answer.ok) throw new Error((answer.data && answer.data.error) || t('error.taskFailed'));
     const created = answer.data && answer.data.created ? answer.data.created.length : 0;
     for (const key of keys) selectedDeadlines.delete(key);
-    toast(created > 1 ? t('action.multipleSaved', { n: created }) : t('action.savedToast'));
+    toast(created > 1 ? fill('action.multipleSaved', { n: created }) : t('action.savedToast'));
     await redraw();
   } catch (error) {
     toast(error.message || t('error.taskFailed'), true);
@@ -166,8 +166,8 @@ function drawFollowUp(row) {
   const copy = el('div', 'action-copy');
   copy.appendChild(el('div', 'action-title', row.subject || '(no subject)'));
   copy.appendChild(el('div', 'action-meta', [
-    t('action.from', { name: row.recipient || row.accountLabel || row.account }),
-    t('action.days', { n: row.daysWaiting }),
+    fill('action.from', { name: row.recipient || row.accountLabel || row.account }),
+    fill('action.days', { n: row.daysWaiting }),
   ].filter(Boolean).join(' · ')));
   item.append(clock, copy, el('div', 'action-tools'));
   return item;

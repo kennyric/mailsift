@@ -2360,7 +2360,7 @@ describe('the rest of the mailbox in the page', () => {
     const script = clientScript();
     expect(script).toContain("if (markable) bar.appendChild(barButton('i-check'");
     expect(script).toContain("return !(liveIn(row, 'archive') || liveIn(row, 'all') || role === 'archive' || role === 'all'");
-    expect(script).toContain("if (archivable(row)) bar.appendChild(barButton('i-archive'");
+    expect(script).toContain("if (wide && archivable(row)) bar.appendChild(barButton('i-archive'");
     // A message the page just archived is not offered Archive again: the answer said where its archive is.
     expect(script).toContain("if (action === 'archive' && r.data.row && r.data.row.folder) archiveOf.set(r.data.row.account, r.data.row.folder);");
     expect(script).toContain("if (e.key === 'e') { if (!markable) return;");
