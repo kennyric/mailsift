@@ -40,6 +40,7 @@ import {
   parseSenderPasswords, passwordCandidates, PdfPasswordError,
 } from './services/documents.js';
 import { indexPdfDocuments } from './services/document-index.js';
+import { formatAmount } from './services/money.js';
 import { extractBillWithAI } from './services/bill-ai.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
 import { aiGatewayHeaders } from './services/decider.js';
@@ -783,7 +784,8 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       const bills = url.searchParams.get('bills') === '1';
       const dismissed = url.searchParams.get('dismissed') === '1';
       return ok({
-        documents: store.listDocuments({ q, bills, dismissed, limit: 100 }),
+        documents: store.listDocuments({ q, bills, dismissed, limit: 100 })
+          .map((row) => ({ ...row, amount: formatAmount(row.amount) })),
         pending: store.documentsPending(500),
       });
     } finally {

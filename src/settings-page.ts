@@ -75,6 +75,11 @@ const EN: Dict = {
   'docs.openTab': 'Open in a new tab',
   'docs.pdfFailed': 'This document could not be shown. Try opening it in a new tab.',
   'docs.loadingPdf': 'Loading the PDF…',
+  'docs.zoom': 'PDF controls',
+  'docs.zoomIn': 'Zoom in',
+  'docs.zoomOut': 'Zoom out',
+  'docs.fit': 'Fit to width',
+  'docs.download': 'Download',
   'docs.showDismissed': 'Show dismissed',
   'docs.addTitle': 'Add a message',
   'docs.addHint': 'Search a mailbox for a message whose PDFs were not indexed, then add them here.',
@@ -418,6 +423,11 @@ const ZH: Dict = {
   'docs.openTab': '在新标签页打开',
   'docs.pdfFailed': '无法显示这个文档，请尝试在新标签页打开。',
   'docs.loadingPdf': '正在加载 PDF…',
+  'docs.zoom': 'PDF 控件',
+  'docs.zoomIn': '放大',
+  'docs.zoomOut': '缩小',
+  'docs.fit': '适应宽度',
+  'docs.download': '下载',
   'docs.showDismissed': '显示已忽略',
   'docs.addTitle': '添加邮件',
   'docs.addHint': '在邮箱中搜索没有索引 PDF 的邮件，然后在这里添加。',
@@ -1005,8 +1015,14 @@ body{min-height:100vh}
 .doc-bills{flex:0 0 auto;align-items:center;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
 .doc-bills .st-label{font-size:13px;color:var(--text-2);line-height:1.2}
 .doc-bills input{margin:0}
-.doc-viewer{display:grid;gap:10px;max-height:64vh;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--fill);-webkit-overflow-scrolling:touch}
-.doc-viewer img,.doc-viewer canvas{display:block;width:100%;height:auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.doc-tools{display:flex;align-items:center;gap:8px;padding:0 20px 10px;flex-wrap:wrap}
+.doc-tool{min-width:38px;min-height:34px;padding:4px 10px;font-size:15px;font-weight:600;text-decoration:none}
+.doc-zoom{appearance:none;border:0;background:none;color:var(--text-2);font:inherit;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;min-width:52px;min-height:34px;padding:0 6px;border-radius:8px;cursor:pointer}
+.doc-zoom:hover{background:var(--fill)}
+.doc-tools .st-spacer{flex:1}
+.doc-dialog .st-dialog-head h2{overflow-wrap:anywhere;line-height:1.3}
+.doc-viewer{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-height:60vh;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--fill);-webkit-overflow-scrolling:touch}
+.doc-viewer img,.doc-viewer canvas{display:block;width:100%;height:auto;margin:0 auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .doc-viewer .st-help{margin:0;padding:24px 18px;text-align:center}
 .doc-dialog .st-dialog-body{padding:10px 14px 14px}
 .doc-add-item{display:grid;gap:3px;padding:10px 2px;border-bottom:1px solid var(--line)}
@@ -1018,8 +1034,12 @@ body{min-height:100vh}
 @media(max-width:700px){
   .doc-dialog{width:calc(100vw - 12px);max-height:calc(100vh - 16px)}
   .doc-dialog .st-dialog-head{padding:12px 14px 4px}
-  .doc-dialog .st-dialog-foot{padding:10px 14px}
-  .doc-viewer{max-height:62vh;padding:5px;gap:6px}
+  .doc-dialog .st-dialog-head h2{font-size:16px}
+  .doc-tools{padding:0 14px 8px;gap:6px}
+  .doc-tool{min-width:40px;min-height:36px;padding:4px 8px}
+  .doc-zoom{min-width:46px;min-height:36px}
+  .doc-dialog .st-dialog-foot{padding:10px 14px;flex-wrap:wrap}
+  .doc-viewer{max-height:56vh;padding:5px;gap:6px}
   .doc-bills{flex:1 1 0}
   .doc-actions{justify-content:stretch;flex-wrap:wrap;gap:8px}
   .doc-actions .st-result{flex:1 1 100%}
@@ -1029,7 +1049,7 @@ body{min-height:100vh}
   #doc-table tr{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px}
   #doc-table td{border:0;padding:3px 0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;text-align:right}
   #doc-table td::before{content:attr(data-label);color:var(--muted);font-size:12px;font-weight:600;text-align:left;flex:0 0 auto}
-  #doc-table td.doc-file{display:block;text-align:left;font-weight:600;font-size:15px;padding:0 0 6px;line-height:1.35}
+  #doc-table td.doc-file{display:block;text-align:left;font-weight:600;font-size:15px;padding:0 0 6px;line-height:1.35;overflow-wrap:anywhere}
   #doc-table td.doc-file::before{content:none}
   #doc-table td:empty{display:none}
   #doc-table td.st-table-actions{display:flex;justify-content:flex-start;flex-wrap:wrap;gap:6px 16px;margin-top:8px;padding-top:9px;border-top:1px solid var(--line);text-align:left}
@@ -1721,6 +1741,13 @@ export function renderDocumentsPage(
     </dialog>
     <dialog class="st-dialog doc-dialog" id="pdf-dialog">
       <div class="st-dialog-head"><h2 id="pdf-title"></h2></div>
+      <div class="doc-tools" role="toolbar" aria-label="${s('docs.zoom')}">
+        <button type="button" class="st-btn doc-tool" id="pdf-zoom-out" aria-label="${s('docs.zoomOut')}" title="${s('docs.zoomOut')}">−</button>
+        <button type="button" class="doc-zoom" id="pdf-zoom-reset" title="${s('docs.fit')}" aria-label="${s('docs.fit')}">100%</button>
+        <button type="button" class="st-btn doc-tool" id="pdf-zoom-in" aria-label="${s('docs.zoomIn')}" title="${s('docs.zoomIn')}">+</button>
+        <span class="st-spacer"></span>
+        <a class="st-btn doc-tool" id="pdf-download" download>${s('docs.download')}</a>
+      </div>
       <div class="st-dialog-body"><div class="doc-viewer" id="pdf-pages"></div></div>
       <div class="st-dialog-foot">
         <a class="st-btn" id="pdf-tab" target="_blank" rel="noopener">${s('docs.openTab')}</a>
@@ -1805,6 +1832,8 @@ export function renderDocumentsPage(
       var pdfRun = 0;
       var pdfTask = null;
       var pdfjsPromise = null;
+      var pdfView = null;
+      var ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5];
       function pdfParams(docItem) {
         return 'key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId);
       }
@@ -1822,13 +1851,24 @@ export function renderDocumentsPage(
         }
         return pdfjsPromise;
       }
+      function setZoomControls(active) {
+        var scale = pdfView ? pdfView.scale : 1;
+        var index = ZOOM_STEPS.indexOf(scale);
+        if (index < 0) index = ZOOM_STEPS.indexOf(1);
+        $('pdf-zoom-out').disabled = !active || index <= 0;
+        $('pdf-zoom-in').disabled = !active || index >= ZOOM_STEPS.length - 1;
+        $('pdf-zoom-reset').disabled = !active;
+        $('pdf-zoom-reset').textContent = Math.round(scale * 100) + '%';
+      }
       function clearPdf() {
         pdfRun += 1;
+        pdfView = null;
         if (pdfTask) {
           try { pdfTask.destroy(); } catch (error) { /* already gone */ }
           pdfTask = null;
         }
         $('pdf-pages').textContent = '';
+        setZoomControls(false);
       }
       function closePdf() { var dialog = $('pdf-dialog'); if (dialog.open) dialog.close(); }
       $('pdf-close').onclick = closePdf;
@@ -1839,9 +1879,65 @@ export function renderDocumentsPage(
        * own PDF plugin cannot be relied on inside a dialog and its iframe is
        * blank on several phones; a canvas works everywhere.
        */
+      /**
+       * Every page is rendered again at the chosen size rather than stretched
+       * with CSS, so zooming in makes the text sharper, not blurrier. Past
+       * 100% the page is wider than the dialog and can be panned.
+       */
+      async function paintPdf() {
+        var view = pdfView;
+        if (!view) return false;
+        var serial = ++view.serial;
+        var box = $('pdf-pages');
+        var keep = box.scrollHeight > box.clientHeight
+          ? box.scrollTop / (box.scrollHeight - box.clientHeight) : 0;
+        setZoomControls(false);
+        try {
+          for (var i = 0; i < view.pages.length; i += 1) {
+            if (view !== pdfView || view.serial !== serial) return false;
+            var item = view.pages[i];
+            var base = item.page.getViewport({ scale: 1 });
+            var viewport = item.page.getViewport({ scale: (view.width * view.dpr * view.scale) / base.width });
+            item.canvas.width = Math.floor(viewport.width);
+            item.canvas.height = Math.floor(viewport.height);
+            item.canvas.style.width = (view.scale * 100) + '%';
+            item.canvas.style.height = 'auto';
+            var context = item.canvas.getContext('2d');
+            if (!context) throw new Error('canvas');
+            await item.page.render({ canvasContext: context, viewport: viewport }).promise;
+          }
+          if (view !== pdfView || view.serial !== serial) return false;
+          box.scrollTop = keep * Math.max(0, box.scrollHeight - box.clientHeight);
+          setZoomControls(true);
+          return true;
+        } catch (error) {
+          if (view !== pdfView || view.serial !== serial) return false;
+          setZoomControls(true);
+          return false;
+        }
+      }
+
+      async function zoomTo(scale) {
+        if (!pdfView) return;
+        pdfView.scale = scale;
+        $('pdf-zoom-reset').textContent = Math.round(scale * 100) + '%';
+        await paintPdf();
+      }
+      function stepZoom(direction) {
+        if (!pdfView) return;
+        var index = ZOOM_STEPS.indexOf(pdfView.scale);
+        if (index < 0) index = ZOOM_STEPS.indexOf(1);
+        var next = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, index + direction))];
+        if (next !== pdfView.scale) zoomTo(next);
+      }
+      $('pdf-zoom-out').onclick = function () { stepZoom(-1); };
+      $('pdf-zoom-in').onclick = function () { stepZoom(1); };
+      $('pdf-zoom-reset').onclick = function () { if (pdfView && pdfView.scale !== 1) zoomTo(1); };
+
       async function openPdf(docItem) {
         if (docItem.error === 'password') { openUnlock(docItem); return; }
         var run = ++pdfRun;
+        pdfView = null;
         var box = $('pdf-pages');
         box.textContent = '';
         var status = document.createElement('p');
@@ -1850,6 +1946,9 @@ export function renderDocumentsPage(
         box.appendChild(status);
         $('pdf-title').textContent = docItem.name || docItem.subject || labels.pdf;
         $('pdf-tab').href = '/api/documents/pdf?' + pdfParams(docItem);
+        $('pdf-download').href = '/api/documents/pdf?' + pdfParams(docItem);
+        $('pdf-download').setAttribute('download', docItem.name || 'document.pdf');
+        setZoomControls(false);
         $('pdf-dialog').showModal();
         try {
           var response = await fetch('/api/documents/pdf?' + pdfParams(docItem), { credentials: 'same-origin' });
@@ -1871,26 +1970,25 @@ export function renderDocumentsPage(
           var pdf = await task.promise;
           if (run !== pdfRun) return;
           box.textContent = '';
-          var width = Math.max(240, box.clientWidth - 2);
-          var ratio = Math.min(window.devicePixelRatio || 1, 2);
+          var style = window.getComputedStyle(box);
+          var padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+          var width = Math.max(240, box.clientWidth - padding);
+          var dpr = Math.min(window.devicePixelRatio || 1, 2);
+          var pages = [];
           for (var n = 1; n <= pdf.numPages; n += 1) {
             var page = await pdf.getPage(n);
             if (run !== pdfRun) return;
-            var viewport = page.getViewport({ scale: (width * ratio) / page.getViewport({ scale: 1 }).width });
             var canvas = document.createElement('canvas');
             canvas.className = 'doc-page';
-            canvas.width = Math.floor(viewport.width);
-            canvas.height = Math.floor(viewport.height);
-            canvas.style.width = '100%';
-            canvas.style.height = 'auto';
-            var context = canvas.getContext('2d');
-            if (!context) throw new Error('canvas');
             box.appendChild(canvas);
-            await page.render({ canvasContext: context, viewport: viewport }).promise;
-            if (run !== pdfRun) return;
+            pages.push({ page: page, canvas: canvas });
           }
+          pdfView = { pdf: pdf, pages: pages, width: width, dpr: dpr, scale: 1, serial: 0 };
+          var painted = await paintPdf();
+          if (!painted) throw new Error('render');
         } catch (error) {
           if (run !== pdfRun) return;
+          pdfView = null;
           showPageImages(docItem, box, run);
         }
       }
@@ -1900,6 +1998,8 @@ export function renderDocumentsPage(
        * It is slower, but it keeps the document readable instead of a message.
        */
       function showPageImages(docItem, box, run) {
+        pdfView = null;
+        setZoomControls(false);
         box.textContent = '';
         var total = Math.max(1, Math.min(Number(docItem.pages) || 1, 80));
         for (var page = 1; page <= total; page += 1) {
