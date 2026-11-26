@@ -2000,6 +2000,27 @@ function actionCentre(store: StateStore): WebResponse {
   });
 }
 
+/** Dismiss one or more possible tasks, or bring them back after an Undo. */
+async function handleDismissDeadlines(
+  req: IncomingMessage,
+  store: StateStore,
+  ctx: ActionContext,
+  restore: boolean,
+): Promise<WebResponse> {
+  if (ctx.session === 'read' && !ctx.mayMark) return readOnly();
+  const body = await readJson(req, 32 * 1024);
+  const keys = Array.isArray(body?.['keys'])
+    ? [...new Set((body['keys'] as unknown[]).filter((key): key is string => typeof key === 'string').map((key) => key.trim()).filter(Boolean))].slice(0, 50)
+    : [];
+  if (!keys.length) return badRequest('keys are required');
+  let changed = 0;
+  for (const key of keys) {
+    if (restore ? store.restoreDeadline(key) : store.dismissDeadline(key)) changed += 1;
+  }
+  store.recordMcpAudit(restore ? 'web:deadline-restore' : 'web:deadline-dismiss', ctx.client, true, keys[0]);
+  return json(200, { changed });
+}
+
 /** Ask the model to prefill a task from one stored message; fall back to its own fields. */
 async function handleTaskSuggest(req: IncomingMessage, store: StateStore, ctx: ActionContext): Promise<WebResponse> {
   const body = await readJson(req, 4096);
@@ -2144,6 +2165,8 @@ export async function routeActions(
       if (path === '/api/reply' && req.method === 'GET') return handleReply(url.searchParams, store, ctx);
       if (path === '/api/forward' && req.method === 'GET') return handleForward(url.searchParams, store, ctx);
       if (req.method !== 'POST') return undefined;
+      if (path === '/api/action-center/dismiss') return handleDismissDeadlines(req, store, ctx, false);
+      if (path === '/api/action-center/restore') return handleDismissDeadlines(req, store, ctx, true);
       if (path === '/api/tasks/suggest') return handleTaskSuggest(req, store, ctx);
       if (path === '/api/tasks/from-messages') return handleTasksFromMessages(req, store, ctx);
       if (path === '/api/tasks/create') return handleTaskCreate(req, store, ctx);

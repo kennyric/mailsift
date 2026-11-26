@@ -17,6 +17,7 @@ let taskSuggestSeq = 0;
 let taskFlush = null;
 const selectedDeadlines = new Set();
 let bulkAddButton = null;
+let bulkDismissButton = null;
 
 function localDueInput(value) {
   if (!value) return '';
@@ -105,6 +106,17 @@ function drawTask(task, redraw) {
   return row;
 }
 
+// Open a message above the action centre, so its Back returns here. A desk
+// shows the message in the pane under the sheet instead, so there the sheet
+// makes way without adding a history entry of its own.
+function openMailFromActionCentre(key) {
+  if (isWide()) {
+    if (taskSheet.open) closeSheet(taskSheet, true);
+    if (actionSheet.open) closeSheet(actionSheet, true);
+  }
+  openFromLink(key, false);
+}
+
 function drawDeadline(row, redraw) {
   const item = el('div', 'action-row');
   const lead = el('span', 'action-lead');
@@ -125,8 +137,7 @@ function drawDeadline(row, redraw) {
   if (row.dedupKey) {
     copy.onclick = (event) => {
       if (event.target.closest('button, a, input')) return;
-      closeSheet(actionSheet, false);
-      openFromLink(row.dedupKey, false);
+      openMailFromActionCentre(row.dedupKey);
     };
   }
   const tools = el('div', 'action-tools');
@@ -135,15 +146,50 @@ function drawDeadline(row, redraw) {
     add.type = 'button';
     add.onclick = () => addTasksFromMessages([row.dedupKey], redraw, add);
     tools.appendChild(add);
+    const dismiss = el('button', 'icon-btn small action-dismiss');
+    dismiss.type = 'button';
+    dismiss.title = t('action.dismiss');
+    dismiss.setAttribute('aria-label', t('action.dismiss'));
+    dismiss.appendChild(icon('x'));
+    dismiss.onclick = () => dismissDeadlines([row.dedupKey], redraw, dismiss);
+    tools.appendChild(dismiss);
   }
   item.append(lead, copy, tools);
   return item;
 }
 
 function syncBulkAdd() {
-  if (!bulkAddButton) return;
-  bulkAddButton.hidden = selectedDeadlines.size === 0;
-  bulkAddButton.textContent = t('action.addSelected');
+  const selected = selectedDeadlines.size > 0;
+  if (bulkAddButton) {
+    bulkAddButton.hidden = !selected;
+    bulkAddButton.textContent = t('action.addSelected');
+  }
+  if (bulkDismissButton) {
+    bulkDismissButton.hidden = !selected;
+    bulkDismissButton.textContent = t('action.dismissSelected');
+  }
+}
+
+async function dismissDeadlines(keys, redraw, button) {
+  if (!keys.length) return;
+  if (button) button.disabled = true;
+  try {
+    const answer = await post('/api/action-center/dismiss', { keys });
+    if (!answer.ok) throw new Error((answer.data && answer.data.error) || t('error.taskFailed'));
+    for (const key of keys) selectedDeadlines.delete(key);
+    toast(keys.length > 1 ? fill('action.dismissedMany', { n: keys.length }) : t('action.dismissedToast'), false, {
+      label: t('undo'),
+      run: async () => {
+        const back = await post('/api/action-center/restore', { keys });
+        if (!back.ok) toast((back.data && back.data.error) || t('error.taskFailed'), true);
+        else await redraw();
+      },
+    });
+    await redraw();
+  } catch (error) {
+    toast(error.message || t('error.taskFailed'), true);
+    if (button) button.disabled = false;
+  }
 }
 
 async function addTasksFromMessages(keys, redraw, button) {
@@ -264,15 +310,22 @@ async function drawActionCenter() {
     }
     if (!data.deadlines.length) {
       bulkAddButton = null;
+      bulkDismissButton = null;
       actionBody.appendChild(actionEmpty(t('action.empty')));
     } else {
       const bulk = el('div', 'action-bulk');
       bulk.appendChild(el('span', 'action-bulk-hint', t('action.selectHint')));
+      const bulkTools = el('div', 'action-bulk-actions');
+      bulkDismissButton = el('button', 'text-btn quiet', t('action.dismissSelected'));
+      bulkDismissButton.type = 'button';
+      bulkDismissButton.hidden = selectedDeadlines.size === 0;
+      bulkDismissButton.onclick = () => dismissDeadlines([...selectedDeadlines], redraw, bulkDismissButton);
       bulkAddButton = el('button', 'text-btn', t('action.addSelected'));
       bulkAddButton.type = 'button';
       bulkAddButton.hidden = selectedDeadlines.size === 0;
       bulkAddButton.onclick = () => addTasksFromMessages([...selectedDeadlines], redraw, bulkAddButton);
-      bulk.appendChild(bulkAddButton);
+      bulkTools.append(bulkDismissButton, bulkAddButton);
+      bulk.appendChild(bulkTools);
       actionBody.appendChild(bulk);
       data.deadlines.forEach((row) => actionBody.appendChild(drawDeadline(row, redraw)));
     }
@@ -411,11 +464,10 @@ function openTaskDetail(task) {
       open.disabled = true;
       const ok = await save();
       if (!ok) { open.disabled = false; return; }
-      closed = true;
-      taskFlush = null;
-      closeSheet(taskSheet, false);
-      if (actionSheet.open) closeSheet(actionSheet, false);
-      openFromLink(task.messageKey, false);
+      // On a phone the message opens above this detail, so Back returns here;
+      // a desk closes it silently and shows the message in the pane.
+      openMailFromActionCentre(task.messageKey);
+      open.disabled = false;
     };
     buttons.appendChild(open);
   }
@@ -437,6 +489,14 @@ function openActionCenter() {
 }
 function openTaskFor(row) {
   taskDraft = { key: row.dedupKey, title: row.subject || row.summary || '' };
+  // Reached from a message that was itself opened from the action centre:
+  // put the message (and a task detail under it) down to show the form.
+  if (actionSheet.open) {
+    if (sheet.open) closeSheet(sheet, false);
+    if (taskSheet.open) closeSheet(taskSheet, false);
+    drawActionCenter();
+    return;
+  }
   openActionCenter();
 }
 if (actionOpen) actionOpen.onclick = openActionCenter;
@@ -478,5 +538,10 @@ if (taskDone) taskDone.onclick = async () => {
   }
   if (ok) closeSheet(taskSheet, false);
 };
+// A message opened above the action centre can complete it, archive it, or
+// give it a task; refresh the list underneath when the reader closes.
+sheet.addEventListener('close', () => {
+  if (actionSheet.open && !actionSheet.classList.contains('closing')) drawActionCenter();
+});
 `;
 }

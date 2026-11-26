@@ -99,6 +99,9 @@ CREATE INDEX IF NOT EXISTS idx_mail_actions_created ON mail_actions (created_at)
 CREATE TABLE IF NOT EXISTS owner_filed (
   dedup_key TEXT PRIMARY KEY, account TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS dismissed_deadlines (
+  dedup_key TEXT PRIMARY KEY, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sent_mail (
   id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, account_label TEXT,
   message_id TEXT NOT NULL, thread_key TEXT NOT NULL, in_reply_to TEXT, answers TEXT,
@@ -1286,8 +1289,25 @@ export class StateStore {
          AND COALESCE(category, '') NOT IN ('Marketing', 'Social')
          AND deadline IS NOT NULL AND deadline != ''
          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.message_key = seen.dedup_key)
+         AND NOT EXISTS (SELECT 1 FROM dismissed_deadlines d WHERE d.dedup_key = seen.dedup_key)
        ORDER BY created_at DESC LIMIT ?`,
     ).all(Math.max(1, Math.min(limit, 200))) as Array<Record<string, unknown>>).map(toRow);
+  }
+
+  /** Hide one mail from the action centre's possible tasks without handling the mail itself. */
+  dismissDeadline(dedupKey: string): boolean {
+    if (!dedupKey) return false;
+    return Number(this.db.prepare(
+      'INSERT OR IGNORE INTO dismissed_deadlines (dedup_key, created_at) VALUES (?, ?)',
+    ).run(dedupKey.slice(0, 1400), now()).changes) > 0;
+  }
+
+  /** Put a dismissed mail back among the possible tasks. */
+  restoreDeadline(dedupKey: string): boolean {
+    if (!dedupKey) return false;
+    return Number(this.db.prepare(
+      'DELETE FROM dismissed_deadlines WHERE dedup_key = ?',
+    ).run(dedupKey).changes) > 0;
   }
 
   /** The rows an assistant should consider first for a question, even beyond the recent scan. */
@@ -1323,6 +1343,7 @@ export class StateStore {
     ).run(cutoff).changes);
     const mcpAudit = Number(this.db.prepare('DELETE FROM mcp_audit WHERE created_at < ?').run(cutoff).changes);
     this.db.prepare('DELETE FROM owner_filed WHERE created_at < ?').run(cutoff);
+    this.db.prepare('DELETE FROM dismissed_deadlines WHERE created_at < ?').run(cutoff);
     const mailActions = Number(this.db.prepare('DELETE FROM mail_actions WHERE created_at < ?').run(cutoff).changes);
     const digests = Number(this.db.prepare('DELETE FROM digest_log WHERE sent_at < ?').run(cutoff).changes);
     // The owner's own mail goes with the same retention, counted from the day

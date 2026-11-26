@@ -39,6 +39,14 @@ describe('action centre', { timeout: 20_000 }, () => {
     // Deleting the task puts the mail back among the possible tasks.
     expect(state.deleteTask(task.id)).toBe(true);
     expect(state.deadlines().map((row) => row.dedupKey)).toEqual(['real']);
+
+    // A possible task can be dismissed without handling its mail, and Undo
+    // puts it back.
+    expect(state.dismissDeadline('real')).toBe(true);
+    expect(state.dismissDeadline('real')).toBe(false);
+    expect(state.deadlines()).toEqual([]);
+    expect(state.restoreDeadline('real')).toBe(true);
+    expect(state.deadlines().map((row) => row.dedupKey)).toEqual(['real']);
   });
 
   it('finds a sent message still waiting for its first reply', () => {

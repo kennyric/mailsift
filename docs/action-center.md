@@ -20,8 +20,11 @@ It has three sections:
   Marketing/Social categories, whose triage result carried an explicit
   deadline. Each row has a quick **Add task** button and a checkbox; selected
   rows can be turned into tasks together. Opening one goes to the message in
-  the reader. Once a task keeps that message's key, the mail leaves this list;
-  deleting the task puts it back.
+  the reader; on a phone the reader sits above the action centre, so closing it
+  returns there. Each row can also be **Dismissed** without handling the mail,
+  alone or with the other selected rows, and the toast's **Undo** puts it back.
+  Once a task keeps that message's key, the mail leaves this list; deleting the
+  task puts it back.
 
 When a task is started from a message, the configured model drafts its title,
 note and explicit due date. The draft is editable, and falls back to the

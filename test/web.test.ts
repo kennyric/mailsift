@@ -2896,6 +2896,21 @@ describe('the parts of the page script', () => {
     expect(script).toContain('buttons.appendChild(remove);');
     expect(script).toContain('taskFlush = save;');
   });
+
+  it('opens a possible task above the action centre and can dismiss it with Undo', () => {
+    const script = clientScript();
+    // On a phone the reader stacks over the action centre, so Back returns there.
+    expect(script).toContain('function openMailFromActionCentre(key)');
+    expect(script).toContain('openMailFromActionCentre(row.dedupKey);');
+    expect(script).toContain('openMailFromActionCentre(task.messageKey);');
+    expect(script).toContain("if (taskSheet.open) closeSheet(taskSheet, true);");
+    expect(script).toContain("if (actionSheet.open) closeSheet(actionSheet, true);");
+    // Dismissal is separate from handling the mail, and can be undone.
+    expect(script).toContain("post('/api/action-center/dismiss', { keys })");
+    expect(script).toContain("post('/api/action-center/restore', { keys })");
+    expect(script).toContain("t('action.dismissSelected')");
+    expect(script).toContain("el('button', 'icon-btn small action-dismiss')");
+  });
 });
 
 describe('picking many messages in the page', () => {

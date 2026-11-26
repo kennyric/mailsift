@@ -496,11 +496,14 @@ body.offline #refresh,body.offline .load-more{opacity:.4;pointer-events:none}
 .action-form .primary-action{grid-column:2;align-self:end;min-height:42px}
 .action-form .action-suggest{grid-column:1/-1;margin:0;font-size:12px;line-height:1.4;color:var(--muted)}
 .action-form .action-suggest.ok{color:var(--ok)}
-.action-bulk{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 0 8px;border-bottom:1px solid var(--line);margin-bottom:2px}
+.action-bulk{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:0 0 8px;border-bottom:1px solid var(--line);margin-bottom:2px}
 .action-bulk-hint{font-size:12px;color:var(--muted)}
+.action-bulk-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}
 .action-bulk .text-btn{min-height:32px;padding:4px 8px;font-size:12px}
 .action-add{border:1px solid var(--line-strong);border-radius:999px;background:var(--surface);color:var(--accent);font-weight:600;padding:4px 10px}
 .action-add:hover{background:var(--accent-tint);border-color:var(--accent)}
+.action-dismiss{flex:none;min-width:30px;min-height:30px;margin:0;padding:0;color:var(--muted)}
+.action-dismiss:hover{background:var(--critical-tint);color:var(--critical-text)}
 .action-lead{display:flex;align-items:center;gap:6px}
 .action-lead>input[type=checkbox]{width:17px;height:17px;margin:0;accent-color:var(--accent)}
 .action-due-line{color:var(--warning-text)}
