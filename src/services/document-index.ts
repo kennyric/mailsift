@@ -9,6 +9,7 @@ import { authorizedUsernames } from '../imap/auth.js';
 import { fetchAttachmentByMessageId, fetchAttachmentByUid } from '../imap/client.js';
 import { mailboxAccount } from '../config.js';
 import { extractAmount, extractDueDate, extractPdfText, looksLikeBill, parsePasswords, parseSenderPasswords, passwordCandidates, PdfPasswordError } from './documents.js';
+import { extractBillWithAI } from './bill-ai.js';
 import { readyAccounts } from './settings-runtime.js';
 import { readPersonalValues, readSettingsFor } from './settings-store.js';
 import type { StateStore } from './state.js';
@@ -93,13 +94,19 @@ export async function indexPdfDocuments(
           continue;
         }
         const pdf = await extractPdfText(downloaded.content, passwordCandidates(candidate.sender, globalPasswords, senderPasswords));
-        const amount = extractAmount(pdf.text) ?? null;
+        let amount = extractAmount(pdf.text) ?? null;
+        let dueDate = extractDueDate(pdf.text) ?? null;
+        if (base.bill && pdf.text.trim()) {
+          const ai = await extractBillWithAI(userID, pdf.text);
+          if (ai.amount) amount = ai.amount;
+          if (ai.dueDate) dueDate = ai.dueDate;
+        }
         store.saveDocument({
           ...base,
           pages: pdf.pages,
           text: pdf.text,
           amount,
-          dueDate: extractDueDate(pdf.text) ?? null,
+          dueDate,
           bill: base.bill || Boolean(amount),
         });
         indexed += 1;

@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS documents (
   amount TEXT, due_date TEXT, bill INTEGER NOT NULL DEFAULT 0,
   subject TEXT, sender TEXT, mail_date TEXT,
   account TEXT, folder TEXT, uid INTEGER, uid_validity TEXT, message_id TEXT,
+  dismissed INTEGER NOT NULL DEFAULT 0,
   error TEXT, indexed_at TEXT NOT NULL,
   PRIMARY KEY (dedup_key, part_id)
 );
@@ -207,6 +208,8 @@ export interface DocumentRecord {
   uid: number | null;
   uidValidity: string | null;
   messageId: string | null;
+  /** Optional on input; the database defaults it to false. */
+  dismissed?: boolean;
   error: string | null;
   indexedAt: string;
 }
@@ -772,6 +775,7 @@ function toDocument(row: Record<string, unknown>): DocumentRecord {
     uid: row['uid'] === null || row['uid'] === undefined ? null : Number(row['uid']),
     uidValidity: row['uid_validity'] ? String(row['uid_validity']) : null,
     messageId: row['message_id'] ? String(row['message_id']) : null,
+    dismissed: Number(row['dismissed'] ?? 0) === 1,
     error: row['error'] ? String(row['error']) : null,
     indexedAt: String(row['indexed_at']),
   };
@@ -917,7 +921,7 @@ export class StateStore {
     for (const [name, definition] of [
       ['subject', 'TEXT'], ['sender', 'TEXT'], ['mail_date', 'TEXT'],
       ['account', 'TEXT'], ['folder', 'TEXT'], ['uid', 'INTEGER'],
-      ['uid_validity', 'TEXT'], ['message_id', 'TEXT'],
+      ['uid_validity', 'TEXT'], ['message_id', 'TEXT'], ['dismissed', 'INTEGER NOT NULL DEFAULT 0'],
     ] as const) {
       if (documentColumns.some((column) => column['name'] === name)) continue;
       try {
@@ -3366,7 +3370,7 @@ export class StateStore {
     return row ? toDocument(row) : undefined;
   }
 
-  listDocuments(options: { q?: string; bills?: boolean; limit?: number } = {}): DocumentListRow[] {
+  listDocuments(options: { q?: string; bills?: boolean; dismissed?: boolean; limit?: number } = {}): DocumentListRow[] {
     const q = (options.q ?? '').trim().slice(0, 200);
     const like = `%${q}%`;
     const rows = this.db.prepare(`SELECT d.*,
@@ -3375,8 +3379,10 @@ export class StateStore {
       FROM documents d LEFT JOIN seen s ON s.dedup_key = d.dedup_key
       WHERE (? = '' OR d.name LIKE ? OR d.text LIKE ? OR COALESCE(s.subject, d.subject) LIKE ? OR COALESCE(s.sender, d.sender) LIKE ?)
         AND (? = 0 OR d.bill = 1)
+        AND (? = 1 OR d.dismissed = 0)
       ORDER BY COALESCE(s.mail_date, d.mail_date, d.indexed_at) DESC LIMIT ?`)
-      .all(q, like, like, like, like, options.bills ? 1 : 0, Math.max(1, Math.min(options.limit ?? 100, 500))) as unknown as Array<Record<string, unknown>>;
+      .all(q, like, like, like, like, options.bills ? 1 : 0, options.dismissed ? 1 : 0,
+        Math.max(1, Math.min(options.limit ?? 100, 500))) as unknown as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       ...toDocument(row),
       subject: row['subject'] ? String(row['subject']) : null,
@@ -3419,6 +3425,12 @@ export class StateStore {
       });
     }
     return out;
+  }
+
+  /** Hide or restore a document without touching the message it came from. */
+  setDocumentDismissed(dedupKey: string, partId: string, dismissed: boolean): boolean {
+    return Number(this.db.prepare('UPDATE documents SET dismissed = ? WHERE dedup_key = ? AND part_id = ?')
+      .run(dismissed ? 1 : 0, dedupKey, partId).changes) > 0;
   }
 
   /** Where a stored message lives, for documents indexed before the location was kept. */

@@ -73,6 +73,25 @@ const EN: Dict = {
   'docs.unlocking': 'Unlocking…',
   'docs.wrongPassword': 'That password did not open the file.',
   'docs.openTab': 'Open in a new tab',
+  'docs.showDismissed': 'Show dismissed',
+  'docs.addTitle': 'Add a message',
+  'docs.addHint': 'Search a mailbox for a message whose PDFs were not indexed, then add them here.',
+  'docs.mailbox': 'Mailbox',
+  'docs.folder': 'Folder',
+  'docs.searchSubject': 'Subject or sender',
+  'docs.searchSubjectHint': 'Billing Statement',
+  'docs.searchMailbox': 'Search the mailbox',
+  'docs.addPdfs': 'Add PDFs',
+  'docs.addDone': 'Added {n} PDF(s).',
+  'docs.email': 'Email',
+  'docs.emailTitle': 'Related email',
+  'docs.emailMissing': 'The email could not be opened. It may have been moved or deleted.',
+  'docs.ai': 'AI',
+  'docs.analyzing': 'Reading the amount with AI…',
+  'docs.aiNone': 'The model found no amount or due date.',
+  'docs.dismiss': 'Dismiss',
+  'docs.restore': 'Restore',
+  'docs.dismissed': 'dismissed',
   'docs.cancel': 'Cancel',
   'sync.title': 'Sync & where is my mail',
   'sync.lede': 'What mailsift is watching, how far back it looked, and a live search of the mailbox for anything you cannot find here.',
@@ -395,6 +414,25 @@ const ZH: Dict = {
   'docs.unlocking': '解锁中…',
   'docs.wrongPassword': '这个密码打不开文件。',
   'docs.openTab': '在新标签页打开',
+  'docs.showDismissed': '显示已忽略',
+  'docs.addTitle': '添加邮件',
+  'docs.addHint': '在邮箱中搜索没有索引 PDF 的邮件，然后在这里添加。',
+  'docs.mailbox': '邮箱',
+  'docs.folder': '文件夹',
+  'docs.searchSubject': '主题或发件人',
+  'docs.searchSubjectHint': 'Billing Statement',
+  'docs.searchMailbox': '搜索邮箱',
+  'docs.addPdfs': '添加 PDF',
+  'docs.addDone': '已添加 {n} 个 PDF。',
+  'docs.email': '邮件',
+  'docs.emailTitle': '相关邮件',
+  'docs.emailMissing': '无法打开这封邮件，可能已被移动或删除。',
+  'docs.ai': 'AI',
+  'docs.analyzing': '正在用 AI 读取金额…',
+  'docs.aiNone': '模型没有找到金额或到期日。',
+  'docs.dismiss': '忽略',
+  'docs.restore': '恢复',
+  'docs.dismissed': '已忽略',
   'docs.cancel': '取消',
   'sync.title': '同步与邮件位置',
   'sync.lede': 'mailsift 正在监控什么、回溯了多久，以及直接在邮箱里搜索找不到的邮件。',
@@ -1575,6 +1613,7 @@ export function renderSyncPage(lang: Language, nonce: string, version: string, r
 
 export function renderDocumentsPage(
   lang: Language, nonce: string, version: string, user: { username: string; role: string },
+  mailboxes: Array<{ username: string; name: string }> = [],
 ): string {
   const d = dict(lang);
   const s = (key: string): string => escapeHtml(d[key] ?? key);
@@ -1609,7 +1648,22 @@ export function renderDocumentsPage(
             <input id="doc-q" type="search" placeholder="${s('docs.searchPlaceholder')}" aria-label="${s('docs.searchPlaceholder')}" autocomplete="off" spellcheck="false">
           </label>
           <label class="st-toggle doc-bills"><span class="st-label">${s('docs.onlyBills')}</span><input type="checkbox" id="doc-bills" role="switch"></label>
+          <label class="st-toggle doc-bills"><span class="st-label">${s('docs.showDismissed')}</span><input type="checkbox" id="doc-dismissed" role="switch"></label>
         </form>
+        <details class="st-more" id="add-message">
+          <summary>${s('docs.addTitle')}</summary>
+          <div class="st-form">
+            <p class="st-help">${s('docs.addHint')}</p>
+            <div class="st-row2">
+              <div class="st-field"><label for="add-mailbox">${s('docs.mailbox')}</label>
+                <select id="add-mailbox">${mailboxes.map((mailbox) => `<option value="${escapeHtml(mailbox.username)}">${escapeHtml(mailbox.name || mailbox.username)}</option>`).join('')}</select></div>
+              <div class="st-field"><label for="add-query">${s('docs.searchSubject')}</label>
+                <input id="add-query" type="search" placeholder="${s('docs.searchSubjectHint')}" autocomplete="off" spellcheck="false"></div>
+            </div>
+            <div class="st-foot"><span class="st-result" id="add-result"></span><button type="button" class="st-btn" id="add-search">${s('docs.searchMailbox')}</button></div>
+            <div id="add-hits"></div>
+          </div>
+        </details>
         <div class="st-table-wrap">
           <table class="st-table" id="doc-table">
             <thead><tr>
@@ -1636,6 +1690,14 @@ export function renderDocumentsPage(
         <span class="st-spacer"></span>
         <button type="button" class="st-btn primary" id="pdf-close">${s('docs.close')}</button>
       </div>
+    </dialog>
+    <dialog class="st-dialog" id="email-dialog">
+      <div class="st-dialog-head"><h2 id="email-title">${s('docs.emailTitle')}</h2></div>
+      <div class="st-dialog-body">
+        <p class="st-help" id="email-meta"></p>
+        <pre class="st-code" id="email-text" style="white-space:pre-wrap;max-height:55vh;overflow:auto"></pre>
+      </div>
+      <div class="st-dialog-foot"><span class="st-spacer"></span><button type="button" class="st-btn primary" id="email-close">${s('docs.close')}</button></div>
     </dialog>
     <dialog class="st-dialog" id="unlock-dialog">
       <div class="st-dialog-head"><h2>${s('docs.unlockTitle')}</h2></div>
@@ -1668,6 +1730,21 @@ export function renderDocumentsPage(
         unlocking: ${JSON.stringify(s('docs.unlocking'))},
         wrong: ${JSON.stringify(s('docs.wrongPassword'))},
         rememberFor: ${JSON.stringify(s('docs.rememberFor'))},
+        email: ${JSON.stringify(s('docs.email'))},
+        emailTitle: ${JSON.stringify(s('docs.emailTitle'))},
+        emailMissing: ${JSON.stringify(s('docs.emailMissing'))},
+        ai: ${JSON.stringify(s('docs.ai'))},
+        analyzing: ${JSON.stringify(s('docs.analyzing'))},
+        aiNone: ${JSON.stringify(s('docs.aiNone'))},
+        dismiss: ${JSON.stringify(s('docs.dismiss'))},
+        restore: ${JSON.stringify(s('docs.restore'))},
+        dismissed: ${JSON.stringify(s('docs.dismissed'))},
+        addPdfs: ${JSON.stringify(s('docs.addPdfs'))},
+        date: ${JSON.stringify(s('docs.date'))},
+        sender: ${JSON.stringify(s('docs.sender'))},
+        subject: ${JSON.stringify(s('docs.subject'))},
+        folder: ${JSON.stringify(s('docs.folder'))},
+        addDone: ${JSON.stringify(s('docs.addDone'))},
       };
       function cell(text, className) {
         var td = document.createElement('td');
@@ -1703,6 +1780,59 @@ export function renderDocumentsPage(
         $('pdf-frame').src = pdfUrl;
         $('pdf-tab').href = pdfUrl;
         $('pdf-dialog').showModal();
+      }
+
+      function openEmailDoc(docItem) {
+        var dialog = $('email-dialog');
+        $('email-title').textContent = labels.emailTitle;
+        $('email-meta').textContent = '';
+        $('email-text').textContent = '';
+        dialog.showModal();
+        fetch('/api/documents/message?key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId), { credentials: 'same-origin' })
+          .then(async function (response) {
+            var data = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(data.error || labels.emailMissing);
+            $('email-title').textContent = data.subject || labels.emailTitle;
+            var from = data.from ? (data.from.name ? data.from.name + ' <' + data.from.address + '>' : data.from.address) : '';
+            $('email-meta').textContent = [from, data.date, data.folder].filter(Boolean).join(' · ');
+            $('email-text').textContent = data.text || labels.noText;
+          })
+          .catch(function (error) { $('email-text').textContent = error.message; });
+      }
+      $('email-close').onclick = function () { $('email-dialog').close(); };
+
+      async function analyzeDoc(docItem) {
+        var status = $('doc-status');
+        status.className = 'st-result';
+        status.textContent = labels.analyzing;
+        try {
+          var response = await fetch('/api/documents/analyze', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ key: docItem.dedupKey, part: docItem.partId }),
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) throw new Error(data.error || 'failed');
+          if (!data.analyzed) { status.textContent = labels.aiNone; status.className = 'st-result'; }
+          else { status.textContent = ''; }
+          await load();
+        } catch (error) {
+          status.className = 'st-result bad';
+          status.textContent = error.message;
+        }
+      }
+
+      async function dismissDoc(docItem) {
+        try {
+          var response = await fetch('/api/documents/dismiss', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ key: docItem.dedupKey, part: docItem.partId, dismissed: !docItem.dismissed }),
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) throw new Error(data.error || 'failed');
+          await load();
+        } catch (error) {
+          alert(error.message);
+        }
       }
 
       function openUnlock(docItem) {
@@ -1782,6 +1912,13 @@ export function renderDocumentsPage(
             nameCell.appendChild(document.createTextNode(' '));
             nameCell.appendChild(locked);
           }
+          if (docItem.dismissed) {
+            var gone = document.createElement('span');
+            gone.className = 'st-pill';
+            gone.textContent = labels.dismissed;
+            nameCell.appendChild(document.createTextNode(' '));
+            nameCell.appendChild(gone);
+          }
           tr.appendChild(nameCell);
           tr.appendChild(cell(docItem.subject || ''));
           tr.appendChild(cell(docItem.senderName || docItem.sender || ''));
@@ -1798,6 +1935,9 @@ export function renderDocumentsPage(
           actions.appendChild(actionLink(labels.text, function () {
             show({ name: docItem.name, subject: docItem.subject, text: docItem.error === 'password' ? labels.locked + ' — ' + labels.noText : docItem.text });
           }));
+          actions.appendChild(actionLink(labels.email, function () { openEmailDoc(docItem); }));
+          actions.appendChild(actionLink(labels.ai, function () { analyzeDoc(docItem); }));
+          actions.appendChild(actionLink(docItem.dismissed ? labels.restore : labels.dismiss, function () { dismissDoc(docItem); }));
           tr.appendChild(actions);
           body.appendChild(tr);
         });
@@ -1805,7 +1945,8 @@ export function renderDocumentsPage(
       async function load() {
         var q = $('doc-q').value.trim();
         var bills = $('doc-bills').checked ? '1' : '0';
-        var response = await fetch('/api/documents?q=' + encodeURIComponent(q) + '&bills=' + bills, { credentials: 'same-origin' });
+        var dismissed = $('doc-dismissed').checked ? '1' : '0';
+        var response = await fetch('/api/documents?q=' + encodeURIComponent(q) + '&bills=' + bills + '&dismissed=' + dismissed, { credentials: 'same-origin' });
         var data = await response.json().catch(function () { return {}; });
         if (response.ok) render(data.documents || []);
       }
@@ -1835,7 +1976,68 @@ export function renderDocumentsPage(
       $('doc-retry').onclick = function () { indexAll(true); };
       $('doc-search').onsubmit = function (event) { event.preventDefault(); load(); };
       $('doc-bills').onchange = load;
+      $('doc-dismissed').onchange = load;
       $('doc-q').addEventListener('input', function () { clearTimeout(window.__docTimer); window.__docTimer = setTimeout(load, 250); });
+
+      function addPdfs(item) {
+        return fetch('/api/documents/from-live', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({
+            handle: item.handle, subject: item.subject,
+            from: item.from && item.from.address, date: item.date,
+          }),
+        }).then(async function (response) {
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) throw new Error(data.error || 'failed');
+          $('add-result').className = 'st-result ok';
+          $('add-result').textContent = labels.addDone.replace('{n}', String(data.indexed || 0));
+          await load();
+        });
+      }
+      $('add-search').onclick = async function () {
+        var result = $('add-result');
+        var hits = $('add-hits');
+        result.className = 'st-result';
+        result.textContent = '…';
+        hits.textContent = '';
+        try {
+          var response = await fetch('/api/sync/search', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ mailbox: $('add-mailbox').value, query: $('add-query').value.trim() }),
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) throw new Error(data.error || 'failed');
+          if (!data.items.length) { result.textContent = labels.none; return; }
+          result.textContent = '';
+          var table = document.createElement('table');
+          table.className = 'st-table';
+          var thead = document.createElement('thead');
+          var hr = document.createElement('tr');
+          [labels.date, labels.sender, labels.subject, labels.folder, ''].forEach(function (text) {
+            var th = document.createElement('th'); th.textContent = text; hr.appendChild(th);
+          });
+          thead.appendChild(hr); table.appendChild(thead);
+          var tbody = document.createElement('tbody');
+          data.items.forEach(function (item) {
+            var tr = document.createElement('tr');
+            tr.appendChild(cell((item.date || '').slice(0, 10)));
+            tr.appendChild(cell(item.from && (item.from.name || item.from.address)));
+            tr.appendChild(cell(item.subject));
+            tr.appendChild(cell(item.folder));
+            var td = document.createElement('td');
+            var add = document.createElement('button');
+            add.type = 'button'; add.className = 'st-link'; add.textContent = labels.addPdfs;
+            add.onclick = function () { add.disabled = true; addPdfs(item).catch(function (error) { add.disabled = false; result.className = 'st-result bad'; result.textContent = error.message; }); };
+            td.appendChild(add); tr.appendChild(td);
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          hits.appendChild(table);
+        } catch (error) {
+          result.className = 'st-result bad';
+          result.textContent = error.message;
+        }
+      };
       load();
     })();</script>`, nonce);
 }

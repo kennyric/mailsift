@@ -17,7 +17,10 @@ import { ConfigError, mailboxAccount, PROVIDER_PRESETS, type AuthKind } from './
 import {
   authorizedScope, authorizedUsernames, buildTokenRecord, exchangeCode, getOAuthProvider, TokenStore,
 } from './imap/auth.js';
-import { discoverMailboxFolders, fetchAttachmentByMessageId, fetchAttachmentByUid, fetchAttachmentManifestByUid } from './imap/client.js';
+import {
+  discoverMailboxFolders, fetchAttachmentByMessageId, fetchAttachmentByUid, fetchAttachmentManifestByUid,
+  fetchReadableByMessageId,
+} from './imap/client.js';
 import { parseLiveHandle, searchMailbox, useHandleKey } from './imap/mailbox.js';
 import { imapErrorText } from './imap/connection.js';
 import { getLogger } from './logger.js';
@@ -34,6 +37,7 @@ import {
   parseSenderPasswords, passwordCandidates, PdfPasswordError,
 } from './services/documents.js';
 import { indexPdfDocuments } from './services/document-index.js';
+import { extractBillWithAI } from './services/bill-ai.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
 import { aiGatewayHeaders } from './services/decider.js';
 import {
@@ -499,6 +503,9 @@ const allowSyncSearch = rateWindow(10);
 const allowDocumentIndex = rateWindow(60);
 const allowLiveIndex = rateWindow(30);
 const allowUnlock = rateWindow(20);
+const allowAnalyze = rateWindow(30);
+const allowMessage = rateWindow(30);
+const allowDismiss = rateWindow(60);
 
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
@@ -585,7 +592,10 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       return htmlPage(renderSyncPage(lang, ctx.nonce, ctx.version, syncReport(ctx.user)), ctx.nonce, ctx.theme, ctx.palette);
     }
     if (path === '/documents') {
-      return htmlPage(renderDocumentsPage(lang, ctx.nonce, ctx.version, ctx.user), ctx.nonce, ctx.theme, ctx.palette);
+      const mailboxes = readSettingsFor(ctx.user.id).mailboxes
+        .filter((mailbox) => mailbox.enabled)
+        .map((mailbox) => ({ username: mailbox.username, name: mailbox.name ?? '' }));
+      return htmlPage(renderDocumentsPage(lang, ctx.nonce, ctx.version, ctx.user, mailboxes), ctx.nonce, ctx.theme, ctx.palette);
     }
     const doc = readSettingsFor(ctx.user.id);
     if (path === '/settings' && !doc.setupCompletedAt) return redirect('/setup');
@@ -624,7 +634,11 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     try {
       const q = url.searchParams.get('q') ?? '';
       const bills = url.searchParams.get('bills') === '1';
-      return ok({ documents: store.listDocuments({ q, bills, limit: 100 }), pending: store.documentsPending(500) });
+      const dismissed = url.searchParams.get('dismissed') === '1';
+      return ok({
+        documents: store.listDocuments({ q, bills, dismissed, limit: 100 }),
+        pending: store.documentsPending(500),
+      });
     } finally {
       store.close();
     }
@@ -685,6 +699,11 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         text = pdf.text;
         amount = extractAmount(text) ?? null;
         dueDate = extractDueDate(text) ?? null;
+        if (document.bill && text.trim()) {
+          const ai = await extractBillWithAI(ctx.user.id, text);
+          if (ai.amount) amount = ai.amount;
+          if (ai.dueDate) dueDate = ai.dueDate;
+        }
       } catch {
         // The password opened it; reading the text is a bonus, not the point.
       }
@@ -767,6 +786,92 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     }
   }
 
+  if (path === '/api/documents/dismiss' && req.method === 'POST') {
+    if (!allowDismiss(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试太频繁，请稍后再试。' : 'Too many changes; wait a moment.');
+    const body = await readJson(req, 4096);
+    const key = text(body?.['key'], 5000);
+    const part = text(body?.['part'], 40);
+    if (!key || !part) return fail(400, 'missing', zh ? '缺少文档标识。' : 'Document identity is missing.');
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const dismissed = body?.['dismissed'] !== false;
+      if (!store.setDocumentDismissed(key, part, dismissed)) {
+        return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      }
+      return ok({ dismissed });
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/analyze' && req.method === 'POST') {
+    if (!allowAnalyze(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试太频繁，请稍后再试。' : 'Too many analyses; wait a moment.');
+    const body = await readJson(req, 4096);
+    const key = text(body?.['key'], 5000);
+    const part = text(body?.['part'], 40);
+    if (!key || !part) return fail(400, 'missing', zh ? '缺少文档标识。' : 'Document identity is missing.');
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const document = store.getDocument(key, part);
+      if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      if (!document.text.trim()) return fail(400, 'no_text', zh ? '这个文档还没有文字。' : 'This document has no text yet.');
+      const ai = await extractBillWithAI(ctx.user.id, document.text);
+      if (!ai.amount && !ai.dueDate) {
+        return ok({ analyzed: false, amount: document.amount, dueDate: document.dueDate });
+      }
+      store.saveDocument({
+        ...document,
+        amount: ai.amount ?? document.amount,
+        dueDate: ai.dueDate ?? document.dueDate,
+        bill: document.bill || Boolean(ai.amount),
+      });
+      return ok({ analyzed: true, amount: ai.amount ?? document.amount, dueDate: ai.dueDate ?? document.dueDate });
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/message' && req.method === 'GET') {
+    if (!allowMessage(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试太频繁，请稍后再试。' : 'Too many reads; wait a moment.');
+    const key = (url.searchParams.get('key') ?? '').slice(0, 5000);
+    const part = (url.searchParams.get('part') ?? '').slice(0, 40);
+    if (!key || !part) return fail(400, 'missing', zh ? '缺少文档标识。' : 'Document identity is missing.');
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const document = store.getDocument(key, part);
+      if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      const place = documentPlace(store, document);
+      if (!place) return fail(404, 'not_found', zh ? '找不到这封邮件。' : 'That message is not available.');
+      if (!place.messageId) {
+        return fail(409, 'no_message_id', zh ? '这封邮件没有 Message-ID，无法直接打开。' : 'This message has no Message-ID to reopen.');
+      }
+      const mailbox = readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === place.account);
+      if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
+      const account = mailboxAccount(mailbox);
+      const live = await fetchReadableByMessageId(account, place.messageId, {
+        folder: place.folder,
+        ...(place.uid !== null ? { uid: place.uid } : {}),
+        ...(place.uidValidity ? { uidValidity: place.uidValidity } : {}),
+      });
+      if (!live) return fail(404, 'not_found', zh ? '邮箱里找不到这封邮件。' : 'That message is no longer in the mailbox.');
+      const readable = live.readable;
+      const bodyText = [readable.text, readable.quoted].filter(Boolean).join('\n\n').slice(0, 30_000);
+      return ok({
+        subject: readable.subject,
+        from: readable.from,
+        to: readable.to,
+        date: readable.date,
+        folder: live.folder,
+        text: bodyText,
+      });
+    } catch (error) {
+      log.warn(`Related message read failed: ${String(error).slice(0, 200)}`);
+      return fail(502, 'message_failed', zh ? '暂时无法读取这封邮件。' : 'The message could not be read right now.');
+    } finally {
+      store.close();
+    }
+  }
+
   if (path === '/api/documents/from-live' && req.method === 'POST') {
     if (!allowLiveIndex(ctx.client)) return fail(429, 'rate_limited', zh ? '索引太频繁，请稍后再试。' : 'Too much indexing; wait a moment.');
     const body = await readJson(req, 8192);
@@ -792,16 +897,21 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       const sender = text(body?.['from'], 320);
       const mailDate = text(body?.['date'], 60);
       // If the exact message is already stored, use its key so the live index
-      // updates that document instead of making a second copy. By place, not
-      // Message-ID: two senders can reuse an ID.
+      // updates that document instead of making a second copy. By place first;
+      // a message the poller filed earlier has the account|Message-ID key.
       const known = store.recordAt(handle.account, handle.folder, handle.uid, handle.uidValidity);
-      const dedupKey = known?.dedupKey ?? `live:${handle.account}:${handle.folder}:${handle.uid}`;
       let indexed = 0;
       let failed = 0;
       const errors: string[] = [];
       for (const item of lookup.manifest.items) {
         const name = item.filename ?? `part-${item.partId}.pdf`;
         if (!item.contentType.toLowerCase().includes('pdf') && !name.toLowerCase().endsWith('.pdf')) continue;
+        const batchKey = handle.messageId ? `${handle.account}|${handle.messageId}` : '';
+        const batchDocument = batchKey ? store.getDocument(batchKey, item.partId) : undefined;
+        const dedupKey = known?.dedupKey ?? batchDocument?.dedupKey
+          ?? (handle.messageId
+            ? `live:${handle.account}:${handle.messageId}`
+            : `live:${handle.account}:${handle.folder}:${handle.uid}`);
         const previous = store.getDocument(dedupKey, item.partId);
         if (previous?.account) continue;
         const base = {
@@ -822,10 +932,16 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
             continue;
           }
           const pdf = await extractPdfText(downloaded.content, passwordCandidates(sender, globalPasswords, senderPasswords));
-          const amount = extractAmount(pdf.text) ?? null;
+          let amount = extractAmount(pdf.text) ?? null;
+          let dueDate = extractDueDate(pdf.text) ?? null;
+          if (base.bill && pdf.text.trim()) {
+            const ai = await extractBillWithAI(ctx.user.id, pdf.text);
+            if (ai.amount) amount = ai.amount;
+            if (ai.dueDate) dueDate = ai.dueDate;
+          }
           store.saveDocument({
-            ...base, pages: pdf.pages, text: pdf.text, amount,
-            dueDate: extractDueDate(pdf.text) ?? null, bill: base.bill || Boolean(amount),
+            ...base, pages: pdf.pages, text: pdf.text, amount, dueDate,
+            bill: base.bill || Boolean(amount),
           });
           indexed += 1;
         } catch (error) {
