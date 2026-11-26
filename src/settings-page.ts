@@ -57,10 +57,23 @@ const EN: Dict = {
   'docs.onlyBills': 'Bills only',
   'docs.searchPlaceholder': 'Search the extracted text…',
   'docs.locked': 'password required',
-  'docs.passwordHint': 'A locked PDF needs its password in Settings → Privacy and retention → PDF passwords.',
+  'docs.passwordHint': 'Unlock a locked PDF here with its password and choose to remember it for that sender. The shared fallback list is in Settings → Privacy and retention.',
   'docs.open': 'Open',
   'docs.close': 'Close',
   'docs.noText': 'No text was extracted.',
+  'docs.pdf': 'PDF',
+  'docs.text': 'Text',
+  'docs.unlock': 'Unlock',
+  'docs.unlockTitle': 'Unlock PDF',
+  'docs.unlockHelp': 'Enter the password the bank sent. It is checked here and never leaves this server.',
+  'docs.password': 'Password',
+  'docs.remember': 'Remember this password for future statements from this sender',
+  'docs.rememberFor': 'Statements from {sender}',
+  'docs.unlockSubmit': 'Unlock',
+  'docs.unlocking': 'Unlocking…',
+  'docs.wrongPassword': 'That password did not open the file.',
+  'docs.openTab': 'Open in a new tab',
+  'docs.cancel': 'Cancel',
   'sync.title': 'Sync & where is my mail',
   'sync.lede': 'What mailsift is watching, how far back it looked, and a live search of the mailbox for anything you cannot find here.',
   'sync.lastCheck': 'Last completed check',
@@ -366,10 +379,23 @@ const ZH: Dict = {
   'docs.onlyBills': '只看账单',
   'docs.searchPlaceholder': '搜索提取的文字…',
   'docs.locked': '需要密码',
-  'docs.passwordHint': '锁定的 PDF 需要在“设置 → 隐私与保留 → PDF 密码”里填写密码。',
+  'docs.passwordHint': '在这里用密码解锁 PDF，并可以记住这个发件人的密码。共享备用列表在“设置 → 隐私与保留”。',
   'docs.open': '打开',
   'docs.close': '关闭',
   'docs.noText': '没有提取到文字。',
+  'docs.pdf': 'PDF',
+  'docs.text': '文字',
+  'docs.unlock': '解锁',
+  'docs.unlockTitle': '解锁 PDF',
+  'docs.unlockHelp': '输入银行发来的密码。密码只在本机验证，不会离开服务器。',
+  'docs.password': '密码',
+  'docs.remember': '记住这个密码，用于这个发件人以后的账单',
+  'docs.rememberFor': '来自 {sender} 的账单',
+  'docs.unlockSubmit': '解锁',
+  'docs.unlocking': '解锁中…',
+  'docs.wrongPassword': '这个密码打不开文件。',
+  'docs.openTab': '在新标签页打开',
+  'docs.cancel': '取消',
   'sync.title': '同步与邮件位置',
   'sync.lede': 'mailsift 正在监控什么、回溯了多久，以及直接在邮箱里搜索找不到的邮件。',
   'sync.lastCheck': '上次完成的检查',
@@ -936,6 +962,9 @@ body{min-height:100vh}
 .doc-search-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);background:var(--surface)}
 .doc-bills{flex:0 0 auto;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
 .doc-bills .st-label{font-size:13px;color:var(--text-2)}
+.st-table-wrap{overflow-x:auto}
+.st-table-actions{white-space:nowrap;text-align:right}
+.st-table-actions .st-link{font-size:12.5px;margin-left:10px}
 .st-users{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
 .st-user{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .st-user.off{opacity:.66}
@@ -1581,13 +1610,15 @@ export function renderDocumentsPage(
           </label>
           <label class="st-toggle doc-bills"><span class="st-label">${s('docs.onlyBills')}</span><input type="checkbox" id="doc-bills" role="switch"></label>
         </form>
-        <table class="st-table" id="doc-table">
-          <thead><tr>
-            <th>${s('docs.name')}</th><th>${s('docs.subject')}</th><th>${s('docs.sender')}</th>
-            <th>${s('docs.date')}</th><th>${s('docs.pages')}</th><th>${s('docs.amount')}</th><th>${s('docs.due')}</th>
-          </tr></thead>
-          <tbody><tr><td colspan="7">${s('docs.none')}</td></tr></tbody>
-        </table>
+        <div class="st-table-wrap">
+          <table class="st-table" id="doc-table">
+            <thead><tr>
+              <th>${s('docs.name')}</th><th>${s('docs.subject')}</th><th>${s('docs.sender')}</th>
+              <th>${s('docs.date')}</th><th>${s('docs.pages')}</th><th>${s('docs.amount')}</th><th>${s('docs.due')}</th><th></th>
+            </tr></thead>
+            <tbody><tr><td colspan="8">${s('docs.none')}</td></tr></tbody>
+          </table>
+        </div>
       </section>
     </main>
     <dialog class="st-dialog" id="doc-dialog">
@@ -1596,6 +1627,30 @@ export function renderDocumentsPage(
         <div class="st-dialog-body"><pre class="st-code" id="doc-dialog-text" style="white-space:pre-wrap;max-height:60vh;overflow:auto"></pre></div>
         <div class="st-dialog-foot"><span class="st-spacer"></span><button class="st-btn primary" value="close">${s('docs.close')}</button></div>
       </form>
+    </dialog>
+    <dialog class="st-dialog" id="pdf-dialog">
+      <div class="st-dialog-head"><h2 id="pdf-title"></h2></div>
+      <div class="st-dialog-body"><iframe id="pdf-frame" title="${s('docs.pdf')}" style="width:100%;height:60vh;border:0;border-radius:8px;background:var(--fill)"></iframe></div>
+      <div class="st-dialog-foot">
+        <a class="st-btn" id="pdf-tab" target="_blank" rel="noopener">${s('docs.openTab')}</a>
+        <span class="st-spacer"></span>
+        <button type="button" class="st-btn primary" id="pdf-close">${s('docs.close')}</button>
+      </div>
+    </dialog>
+    <dialog class="st-dialog" id="unlock-dialog">
+      <div class="st-dialog-head"><h2>${s('docs.unlockTitle')}</h2></div>
+      <div class="st-dialog-body">
+        <p class="st-help">${s('docs.unlockHelp')}</p>
+        <div class="st-field"><label for="unlock-password">${s('docs.password')}</label>
+          <input id="unlock-password" type="password" autocomplete="off" spellcheck="false"></div>
+        <label class="st-toggle"><span class="st-toggle-text"><span class="st-label">${s('docs.remember')}</span><span class="st-help" id="unlock-sender"></span></span><input type="checkbox" id="unlock-remember" checked></label>
+        <p class="st-result" id="unlock-result"></p>
+      </div>
+      <div class="st-dialog-foot">
+        <button type="button" class="st-btn" id="unlock-cancel">${s('docs.cancel')}</button>
+        <span class="st-spacer"></span>
+        <button type="button" class="st-btn primary" id="unlock-submit">${s('docs.unlockSubmit')}</button>
+      </div>
     </dialog>
     <script nonce="${nonce}">${storeLanguageScript()}
     (function () {
@@ -1607,6 +1662,12 @@ export function renderDocumentsPage(
         indexed: ${JSON.stringify(s('docs.indexed'))},
         left: ${JSON.stringify(s('docs.left'))},
         indexing: ${JSON.stringify(s('docs.indexing'))},
+        pdf: ${JSON.stringify(s('docs.pdf'))},
+        text: ${JSON.stringify(s('docs.text'))},
+        unlock: ${JSON.stringify(s('docs.unlock'))},
+        unlocking: ${JSON.stringify(s('docs.unlocking'))},
+        wrong: ${JSON.stringify(s('docs.wrongPassword'))},
+        rememberFor: ${JSON.stringify(s('docs.rememberFor'))},
       };
       function cell(text, className) {
         var td = document.createElement('td');
@@ -1620,30 +1681,124 @@ export function renderDocumentsPage(
         $('doc-dialog-text').textContent = document.text || labels.noText;
         dialog.showModal();
       }
+      var pdfUrl = '';
+      var unlockTarget = null;
+      function clearPdf() {
+        if (pdfUrl) { URL.revokeObjectURL(pdfUrl); pdfUrl = ''; }
+        $('pdf-frame').removeAttribute('src');
+      }
+      function closePdf() { var dialog = $('pdf-dialog'); if (dialog.open) dialog.close(); }
+      $('pdf-close').onclick = closePdf;
+      $('pdf-dialog').addEventListener('close', clearPdf);
+
+      async function openPdf(docItem) {
+        if (docItem.error === 'password') { openUnlock(docItem); return; }
+        var response = await fetch('/api/documents/pdf?key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId), { credentials: 'same-origin' });
+        if (response.status === 409) { openUnlock(docItem); return; }
+        if (!response.ok) { alert(labels.wrong); return; }
+        var blob = await response.blob();
+        clearPdf();
+        pdfUrl = URL.createObjectURL(blob);
+        $('pdf-title').textContent = docItem.name || docItem.subject || labels.pdf;
+        $('pdf-frame').src = pdfUrl;
+        $('pdf-tab').href = pdfUrl;
+        $('pdf-dialog').showModal();
+      }
+
+      function openUnlock(docItem) {
+        unlockTarget = docItem;
+        var result = $('unlock-result');
+        result.textContent = '';
+        result.className = 'st-result';
+        $('unlock-password').value = '';
+        $('unlock-remember').checked = true;
+        $('unlock-sender').textContent = docItem.sender
+          ? labels.rememberFor.replace('{sender}', docItem.senderName || docItem.sender)
+          : '';
+        $('unlock-dialog').showModal();
+        setTimeout(function () { $('unlock-password').focus(); }, 30);
+      }
+      $('unlock-cancel').onclick = function () { $('unlock-dialog').close(); };
+      $('unlock-submit').onclick = async function () {
+        if (!unlockTarget) return;
+        var password = $('unlock-password').value;
+        var result = $('unlock-result');
+        if (!password) { result.className = 'st-result bad'; result.textContent = labels.wrong; return; }
+        $('unlock-submit').disabled = true;
+        result.className = 'st-result';
+        result.textContent = labels.unlocking;
+        try {
+          var response = await fetch('/api/documents/unlock', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({
+              key: unlockTarget.dedupKey, part: unlockTarget.partId,
+              password: password, remember: $('unlock-remember').checked,
+            }),
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) {
+            throw new Error(data.code === 'wrong_password' ? labels.wrong : (data.error || 'failed'));
+          }
+          var opened = { ...unlockTarget, error: null };
+          $('unlock-dialog').close();
+          await load();
+          await openPdf(opened);
+        } catch (error) {
+          result.className = 'st-result bad';
+          result.textContent = error.message;
+        } finally {
+          $('unlock-submit').disabled = false;
+        }
+      };
+
+      function actionLink(label, onClick) {
+        var link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'st-link';
+        link.textContent = label;
+        link.onclick = function (event) { event.stopPropagation(); onClick(); };
+        return link;
+      }
+
       function render(documents) {
         var body = $('doc-table').querySelector('tbody');
         body.textContent = '';
         if (!documents.length) {
           var empty = document.createElement('tr');
           var td = cell(labels.none);
-          td.colSpan = 7;
+          td.colSpan = 8;
           empty.appendChild(td);
           body.appendChild(empty);
           return;
         }
-        documents.forEach(function (document) {
+        documents.forEach(function (docItem) {
           var tr = document.createElement('tr');
-          tr.style.cursor = 'pointer';
-          tr.appendChild(cell((document.bill ? '🧾 ' : '') + (document.name || '') + (document.error === 'password' ? ' 🔒' : '')));
-          tr.appendChild(cell(document.subject || ''));
-          tr.appendChild(cell(document.senderName || document.sender || ''));
-          tr.appendChild(cell((document.mailDate || '').slice(0, 10)));
-          tr.appendChild(cell(document.pages || '', 'num'));
-          tr.appendChild(cell(document.amount || '', 'num'));
-          tr.appendChild(cell(document.dueDate || '', 'num'));
-          tr.onclick = function () {
-            show({ name: document.name, subject: document.subject, text: document.error === 'password' ? labels.locked + ' — ' + labels.noText : document.text });
-          };
+          var nameCell = document.createElement('td');
+          nameCell.textContent = (docItem.bill ? '🧾 ' : '') + (docItem.name || '');
+          if (docItem.error === 'password') {
+            var locked = document.createElement('span');
+            locked.className = 'st-pill off';
+            locked.textContent = labels.locked;
+            nameCell.appendChild(document.createTextNode(' '));
+            nameCell.appendChild(locked);
+          }
+          tr.appendChild(nameCell);
+          tr.appendChild(cell(docItem.subject || ''));
+          tr.appendChild(cell(docItem.senderName || docItem.sender || ''));
+          tr.appendChild(cell((docItem.mailDate || '').slice(0, 10)));
+          tr.appendChild(cell(docItem.pages || '', 'num'));
+          tr.appendChild(cell(docItem.amount || '', 'num'));
+          tr.appendChild(cell(docItem.dueDate || '', 'num'));
+          var actions = document.createElement('td');
+          actions.className = 'st-table-actions';
+          actions.appendChild(actionLink(
+            docItem.error === 'password' ? labels.unlock : labels.pdf,
+            function () { openPdf(docItem); },
+          ));
+          actions.appendChild(actionLink(labels.text, function () {
+            show({ name: docItem.name, subject: docItem.subject, text: docItem.error === 'password' ? labels.locked + ' — ' + labels.noText : docItem.text });
+          }));
+          tr.appendChild(actions);
           body.appendChild(tr);
         });
       }

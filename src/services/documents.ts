@@ -7,6 +7,10 @@
  * nothing else. A statement that still will not open is reported as locked
  * rather than guessed at.
  */
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 /** The extraction needs a password that was neither empty nor in the list. */
@@ -51,6 +55,38 @@ function tidy(text: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, MAX_TEXT);
+}
+
+/** The sender/domain password map, stored as JSON in the personal settings. */
+export function parseSenderPasswords(value: string | undefined): Record<string, string> {
+  if (!value) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, password] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof password === 'string' && password.trim()) out[key.trim().toLowerCase()] = password.trim();
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** The passwords to try for one sender: its remembered one, its domain's, then the shared list. */
+export function passwordCandidates(
+  sender: string | null | undefined, globalList: readonly string[], map: Record<string, string>,
+): string[] {
+  const address = (sender ?? '').trim().toLowerCase();
+  const domain = address.includes('@') ? address.split('@').pop() ?? '' : '';
+  const out = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (value?.trim()) out.add(value.trim());
+  };
+  add(map[address]);
+  add(map[domain]);
+  for (const password of globalList) add(password);
+  return [...out];
 }
 
 export async function extractPdfText(data: Buffer, passwords: readonly string[] = []): Promise<PdfText> {
@@ -98,6 +134,76 @@ export async function extractPdfText(data: Buffer, passwords: readonly string[] 
     }
   }
   throw lastPasswordError ? new PdfPasswordError() : new Error('the PDF could not be read');
+}
+
+/**
+ * The bytes of a PDF opened with a password, via qpdf, or the original bytes
+ * when it was not encrypted. qpdf reads files only, so it gets a private
+ * temporary directory that is removed whatever happens.
+ */
+export async function decryptPdf(data: Buffer, passwords: readonly string[] = []): Promise<Buffer> {
+  const candidates = ['', ...passwords.filter(Boolean)];
+  let locked = false;
+  for (const password of candidates) {
+    const result = await runQpdf(data, password);
+    if (result.ok) return result.output;
+    if (result.locked) {
+      locked = true;
+      continue;
+    }
+    throw new Error(result.error);
+  }
+  throw locked ? new PdfPasswordError() : new Error('the PDF could not be opened');
+}
+
+async function runQpdf(data: Buffer, password: string): Promise<
+  { ok: true; output: Buffer } | { ok: false; locked: boolean; error: string }
+> {
+  const dir = await mkdtemp(join(tmpdir(), 'mailsift-pdf-'));
+  const input = join(dir, 'in.pdf');
+  const output = join(dir, 'out.pdf');
+  const secret = join(dir, 'password');
+  try {
+    await writeFile(input, data, { mode: 0o600 });
+    if (password) await writeFile(secret, password, { mode: 0o600 });
+    const args = ['--decrypt'];
+    if (password) args.push(`--password-file=${secret}`);
+    args.push(input, output);
+    const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+      const child = spawn('qpdf', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      const timer = setTimeout(() => child.kill('SIGKILL'), 25_000);
+      child.stderr.on('data', (chunk: Buffer) => {
+        if (stderr.length < 4000) stderr += chunk.toString();
+      });
+      child.once('error', (error) => {
+        clearTimeout(timer);
+        resolve({ code: null, stderr: error.message });
+      });
+      child.once('close', (code) => {
+        clearTimeout(timer);
+        resolve({ code, stderr });
+      });
+    });
+    const text = result.stderr.toLowerCase();
+    if (text.includes('invalid password') || text.includes('incorrect password')) {
+      return { ok: false, locked: true, error: 'password' };
+    }
+    // qpdf exits 3 when it repaired a slightly damaged file but still wrote it;
+    // bank statements are not always perfectly formed. Only a missing output is
+    // a failure when the exit code is 0 or 3.
+    if (result.code === 0 || result.code === 3) {
+      try {
+        const bytes = await readFile(output);
+        if (bytes.length) return { ok: true, output: bytes };
+      } catch {
+        // No output written; fall through to the error below.
+      }
+    }
+    return { ok: false, locked: false, error: result.stderr.trim().slice(0, 200) || `qpdf exited ${result.code}` };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 const BILL = /\b(statement|billing|invoice|faktur|tagihan|receipt|kuitansi|e-?statement)\b/i;

@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS documents (
   pages INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '',
   amount TEXT, due_date TEXT, bill INTEGER NOT NULL DEFAULT 0,
   subject TEXT, sender TEXT, mail_date TEXT,
+  account TEXT, folder TEXT, uid INTEGER, uid_validity TEXT, message_id TEXT,
   error TEXT, indexed_at TEXT NOT NULL,
   PRIMARY KEY (dedup_key, part_id)
 );
@@ -200,6 +201,12 @@ export interface DocumentRecord {
   subject: string | null;
   sender: string | null;
   mailDate: string | null;
+  /** Where the original lives, for opening it again without a new search. */
+  account: string | null;
+  folder: string | null;
+  uid: number | null;
+  uidValidity: string | null;
+  messageId: string | null;
   error: string | null;
   indexedAt: string;
 }
@@ -760,6 +767,11 @@ function toDocument(row: Record<string, unknown>): DocumentRecord {
     subject: row['subject'] ? String(row['subject']) : null,
     sender: row['sender'] ? String(row['sender']) : null,
     mailDate: row['mail_date'] ? String(row['mail_date']) : null,
+    account: row['account'] ? String(row['account']) : null,
+    folder: row['folder'] ? String(row['folder']) : null,
+    uid: row['uid'] === null || row['uid'] === undefined ? null : Number(row['uid']),
+    uidValidity: row['uid_validity'] ? String(row['uid_validity']) : null,
+    messageId: row['message_id'] ? String(row['message_id']) : null,
     error: row['error'] ? String(row['error']) : null,
     indexedAt: String(row['indexed_at']),
   };
@@ -902,7 +914,11 @@ export class StateStore {
     // Documents indexed from a live search result have no seen row of their own,
     // so they carry the subject, sender and date themselves.
     const documentColumns = this.db.prepare('PRAGMA table_info(documents)').all() as Array<Record<string, unknown>>;
-    for (const [name, definition] of [['subject', 'TEXT'], ['sender', 'TEXT'], ['mail_date', 'TEXT']] as const) {
+    for (const [name, definition] of [
+      ['subject', 'TEXT'], ['sender', 'TEXT'], ['mail_date', 'TEXT'],
+      ['account', 'TEXT'], ['folder', 'TEXT'], ['uid', 'INTEGER'],
+      ['uid_validity', 'TEXT'], ['message_id', 'TEXT'],
+    ] as const) {
       if (documentColumns.some((column) => column['name'] === name)) continue;
       try {
         this.db.exec(`ALTER TABLE documents ADD COLUMN ${name} ${definition}`);
@@ -3328,16 +3344,20 @@ export class StateStore {
 
   saveDocument(row: DocumentRecord): void {
     this.db.prepare(`INSERT INTO documents
-      (dedup_key, part_id, name, mime, pages, text, amount, due_date, bill, subject, sender, mail_date, error, indexed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (dedup_key, part_id, name, mime, pages, text, amount, due_date, bill, subject, sender, mail_date,
+       account, folder, uid, uid_validity, message_id, error, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(dedup_key, part_id) DO UPDATE SET
         name = excluded.name, mime = excluded.mime, pages = excluded.pages, text = excluded.text,
         amount = excluded.amount, due_date = excluded.due_date, bill = excluded.bill,
         subject = excluded.subject, sender = excluded.sender, mail_date = excluded.mail_date,
+        account = excluded.account, folder = excluded.folder, uid = excluded.uid,
+        uid_validity = excluded.uid_validity, message_id = excluded.message_id,
         error = excluded.error, indexed_at = excluded.indexed_at`)
       .run(row.dedupKey, row.partId, row.name, row.mime, row.pages, row.text, row.amount ?? null,
         row.dueDate ?? null, row.bill ? 1 : 0, row.subject ?? null, row.sender ?? null,
-        row.mailDate ?? null, row.error ?? null, row.indexedAt);
+        row.mailDate ?? null, row.account ?? null, row.folder ?? null, row.uid ?? null,
+        row.uidValidity ?? null, row.messageId ?? null, row.error ?? null, row.indexedAt);
   }
 
   getDocument(dedupKey: string, partId: string): DocumentRecord | undefined {
@@ -3399,6 +3419,22 @@ export class StateStore {
       });
     }
     return out;
+  }
+
+  /** Where a stored message lives, for documents indexed before the location was kept. */
+  documentLocation(dedupKey: string): {
+    account: string; folder: string; uid: number | null; uidValidity: string | null; messageId: string | null;
+  } | undefined {
+    const row = this.db.prepare('SELECT account, folder, uid, uid_validity, message_id FROM seen WHERE dedup_key = ?')
+      .get(dedupKey) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return {
+      account: String(row['account']),
+      folder: String(row['folder'] ?? ''),
+      uid: row['uid'] === null || row['uid'] === undefined ? null : Number(row['uid']),
+      uidValidity: row['uid_validity'] ? String(row['uid_validity']) : null,
+      messageId: row['message_id'] ? String(row['message_id']) : null,
+    };
   }
 
   /** Forget the PDFs that needed a password, so the next index pass retries them. */

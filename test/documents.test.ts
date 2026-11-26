@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractAmount, extractDueDate, looksLikeBill, parsePasswords } from '../src/services/documents.js';
+import { extractAmount, extractDueDate, looksLikeBill, parsePasswords, parseSenderPasswords, passwordCandidates } from '../src/services/documents.js';
 import { inQuietHours } from '../src/services/push-dispatcher.js';
 
 describe('PDF passwords', () => {
@@ -7,6 +7,21 @@ describe('PDF passwords', () => {
     expect(parsePasswords(' 123456 \n\n123456\n01-01-1990\n')).toEqual(['123456', '01-01-1990']);
     expect(parsePasswords('')).toEqual([]);
     expect(parsePasswords(Array.from({ length: 30 }, (_, i) => `p${i}`).join('\n'))).toHaveLength(20);
+  });
+});
+
+describe('remembered sender passwords', () => {
+  it('reads a JSON map and ignores malformed entries', () => {
+    expect(parseSenderPasswords('{"billing@bank.test":"1234","bad":5}')).toEqual({ 'billing@bank.test': '1234' });
+    expect(parseSenderPasswords('not json')).toEqual({});
+  });
+
+  it('tries the sender, its domain, then the shared list', () => {
+    expect(passwordCandidates('Billing@Bank.test', ['global'], { 'billing@bank.test': 'sender', 'bank.test': 'domain' }))
+      .toEqual(['sender', 'domain', 'global']);
+    expect(passwordCandidates('other@bank.test', ['global'], { 'billing@bank.test': 'sender', 'bank.test': 'domain' }))
+      .toEqual(['domain', 'global']);
+    expect([...new Set(passwordCandidates('x@y.test', ['a', 'a'], {}))]).toEqual(['a']);
   });
 });
 

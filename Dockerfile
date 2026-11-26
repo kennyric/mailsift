@@ -31,6 +31,10 @@ COPY package*.json ./
 COPY --from=build /app/node_modules/ node_modules/
 COPY --from=build /app/dist/ dist/
 
+# qpdf opens a password-protected statement locally, so the viewer can show
+# it without handing the password to the browser's own PDF prompt.
+RUN apk add --no-cache qpdf
+
 # Run as non-root. data/ holds the database (settings, encrypted credentials,
 # triage records); secrets/ holds the key the credentials are encrypted with.
 RUN adduser -D -u 10001 mailsift \

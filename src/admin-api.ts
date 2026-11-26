@@ -17,7 +17,7 @@ import { ConfigError, mailboxAccount, PROVIDER_PRESETS, type AuthKind } from './
 import {
   authorizedScope, authorizedUsernames, buildTokenRecord, exchangeCode, getOAuthProvider, TokenStore,
 } from './imap/auth.js';
-import { discoverMailboxFolders, fetchAttachmentByUid, fetchAttachmentManifestByUid } from './imap/client.js';
+import { discoverMailboxFolders, fetchAttachmentByMessageId, fetchAttachmentByUid, fetchAttachmentManifestByUid } from './imap/client.js';
 import { parseLiveHandle, searchMailbox, useHandleKey } from './imap/mailbox.js';
 import { imapErrorText } from './imap/connection.js';
 import { getLogger } from './logger.js';
@@ -29,7 +29,10 @@ import { barColor, LIGHT_BAR } from './web-styles.js';
 import { renderAuditPage, renderClaimPage, renderDocumentsPage, renderInsightsPage, renderSettingsPage, renderSyncPage, renderUsersPage, type SyncReport } from './settings-page.js';
 import { otpauthUrl } from './services/totp.js';
 import { sendTestNotification } from './services/sink.js';
-import { extractAmount, extractDueDate, extractPdfText, looksLikeBill, parsePasswords, PdfPasswordError } from './services/documents.js';
+import {
+  decryptPdf, extractAmount, extractDueDate, extractPdfText, looksLikeBill, parsePasswords,
+  parseSenderPasswords, passwordCandidates, PdfPasswordError,
+} from './services/documents.js';
 import { indexPdfDocuments } from './services/document-index.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
 import { aiGatewayHeaders } from './services/decider.js';
@@ -495,6 +498,7 @@ const PAGES = new Set(['/setup', '/settings', '/users', '/activity', '/insights'
 const allowSyncSearch = rateWindow(10);
 const allowDocumentIndex = rateWindow(60);
 const allowLiveIndex = rateWindow(30);
+const allowUnlock = rateWindow(20);
 
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
@@ -623,6 +627,129 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     }
   }
 
+  if (path === '/api/documents/unlock' && req.method === 'POST') {
+    if (!allowUnlock(ctx.client)) return fail(429, 'rate_limited', zh ? '尝试太频繁，请稍后再试。' : 'Too many attempts; wait a moment.');
+    const body = await readJson(req, 8192);
+    const key = text(body?.['key'], 5000);
+    const part = text(body?.['part'], 40);
+    const password = typeof body?.['password'] === 'string' ? body['password'] as string : '';
+    const remember = body?.['remember'] === true;
+    if (!key || !part || !password) return fail(400, 'password_required', zh ? '请输入这个 PDF 的密码。' : 'Enter the password for this PDF.');
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const document = store.getDocument(key, part);
+      if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      const place = document.account ? undefined : store.documentLocation(document.dedupKey);
+      const accountName = document.account ?? place?.account ?? null;
+      const folder = document.folder ?? place?.folder ?? null;
+      const uid = document.uid ?? place?.uid ?? null;
+      const uidValidity = document.uidValidity ?? place?.uidValidity ?? null;
+      const messageId = document.messageId ?? place?.messageId ?? null;
+      const mailbox = accountName ? readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === accountName) : undefined;
+      if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
+      const account = mailboxAccount(mailbox);
+      const downloaded = folder && uid !== null && uidValidity
+        ? await fetchAttachmentByUid(account, folder, uid, uidValidity, part, {
+          asStored: true, limit: 25 * 1024 * 1024,
+        })
+        : messageId
+          ? await fetchAttachmentByMessageId(account, messageId, part, undefined, { asStored: true, limit: 25 * 1024 * 1024 })
+          : undefined;
+      if (!downloaded) return fail(404, 'not_found', zh ? '邮箱里找不到这个附件。' : 'That attachment is no longer in the mailbox.');
+      // Verify with qpdf before storing the password: a wrong one must not be remembered.
+      await decryptPdf(downloaded.content, [password]);
+      let pages = document.pages;
+      let text = document.text;
+      let amount = document.amount;
+      let dueDate = document.dueDate;
+      try {
+        const pdf = await extractPdfText(downloaded.content, [password]);
+        pages = pdf.pages;
+        text = pdf.text;
+        amount = extractAmount(text) ?? null;
+        dueDate = extractDueDate(text) ?? null;
+      } catch {
+        // The password opened it; reading the text is a bonus, not the point.
+      }
+      if (remember && document.sender) {
+        const current = parseSenderPasswords(readPersonalValues(ctx.user.id)['PDF_SENDER_PASSWORDS']);
+        current[document.sender.trim().toLowerCase()] = password;
+        updateSettingsFor(ctx.user.id, (d) => { d.values.PDF_SENDER_PASSWORDS = JSON.stringify(current); });
+      }
+      store.saveDocument({
+        ...document, pages, text, amount, dueDate,
+        bill: document.bill || Boolean(amount), error: null, indexedAt: new Date().toISOString(),
+      });
+      log.info(`Unlocked a PDF for ${ctx.user.username}${remember && document.sender ? ` and remembered its password for ${document.sender}` : ''}.`);
+      return ok({ unlocked: true, remembered: remember && Boolean(document.sender), pages });
+    } catch (error) {
+      if (error instanceof PdfPasswordError) return fail(400, 'wrong_password', zh ? '这个密码打不开文件。' : 'That password did not open the file.');
+      log.warn(`PDF unlock failed: ${String(error).slice(0, 200)}`);
+      return fail(502, 'unlock_failed', zh ? '暂时无法打开这个 PDF。' : 'The PDF could not be opened right now.');
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/pdf' && req.method === 'GET') {
+    const key = (url.searchParams.get('key') ?? '').slice(0, 5000);
+    const part = (url.searchParams.get('part') ?? '').slice(0, 40);
+    if (!key || !part) return fail(400, 'missing', zh ? '缺少文档标识。' : 'Document identity is missing.');
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const document = store.getDocument(key, part);
+      if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      const place = document.account ? undefined : store.documentLocation(document.dedupKey);
+      const accountName = document.account ?? place?.account ?? null;
+      const folder = document.folder ?? place?.folder ?? null;
+      const uid = document.uid ?? place?.uid ?? null;
+      const uidValidity = document.uidValidity ?? place?.uidValidity ?? null;
+      const messageId = document.messageId ?? place?.messageId ?? null;
+      const mailbox = accountName ? readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === accountName) : undefined;
+      if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
+      const account = mailboxAccount(mailbox);
+      const downloaded = folder && uid !== null && uidValidity
+        ? await fetchAttachmentByUid(account, folder, uid, uidValidity, part, {
+          asStored: true, limit: 25 * 1024 * 1024,
+        })
+        : messageId
+          ? await fetchAttachmentByMessageId(account, messageId, part, undefined, { asStored: true, limit: 25 * 1024 * 1024 })
+          : undefined;
+      if (!downloaded) return fail(404, 'not_found', zh ? '邮箱里找不到这个附件。' : 'That attachment is no longer in the mailbox.');
+      const personal = readPersonalValues(ctx.user.id);
+      const passwords = passwordCandidates(
+        document.sender,
+        parsePasswords(personal['PDF_PASSWORDS']),
+        parseSenderPasswords(personal['PDF_SENDER_PASSWORDS']),
+      );
+      let pdf: Buffer;
+      try {
+        pdf = await decryptPdf(downloaded.content, passwords);
+      } catch (error) {
+        if (error instanceof PdfPasswordError) {
+          return fail(409, 'password_required', zh ? '这个 PDF 需要密码。' : 'This PDF needs its password.');
+        }
+        throw error;
+      }
+      const filename = (document.name || 'document.pdf').replace(/[\\"\r\n]/g, '_');
+      return {
+        status: 200,
+        body: pdf,
+        contentType: 'application/pdf',
+        cacheControl: 'private, no-store',
+        headers: {
+          'content-disposition': `inline; filename="${filename}"`,
+          'x-content-type-options': 'nosniff',
+        },
+      };
+    } catch (error) {
+      log.warn(`PDF view failed: ${String(error).slice(0, 200)}`);
+      return fail(502, 'pdf_failed', zh ? '暂时无法打开这个 PDF。' : 'The PDF could not be opened right now.');
+    } finally {
+      store.close();
+    }
+  }
+
   if (path === '/api/documents/from-live' && req.method === 'POST') {
     if (!allowLiveIndex(ctx.client)) return fail(429, 'rate_limited', zh ? '索引太频繁，请稍后再试。' : 'Too much indexing; wait a moment.');
     const body = await readJson(req, 8192);
@@ -641,7 +768,9 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       }
       const lookup = await fetchAttachmentManifestByUid(account, handle.folder, handle.uid, handle.uidValidity);
       if (!lookup) return fail(404, 'not_found', zh ? '邮箱里找不到这封邮件。' : 'That message is no longer in the mailbox.');
-      const passwords = parsePasswords(readPersonalValues(ctx.user.id)['PDF_PASSWORDS']);
+      const personal = readPersonalValues(ctx.user.id);
+      const globalPasswords = parsePasswords(personal['PDF_PASSWORDS']);
+      const senderPasswords = parseSenderPasswords(personal['PDF_SENDER_PASSWORDS']);
       const subject = text(body?.['subject'], 300);
       const sender = text(body?.['from'], 320);
       const mailDate = text(body?.['date'], 60);
@@ -656,11 +785,14 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       for (const item of lookup.manifest.items) {
         const name = item.filename ?? `part-${item.partId}.pdf`;
         if (!item.contentType.toLowerCase().includes('pdf') && !name.toLowerCase().endsWith('.pdf')) continue;
-        if (store.getDocument(dedupKey, item.partId)) continue;
+        const previous = store.getDocument(dedupKey, item.partId);
+        if (previous?.account) continue;
         const base = {
           dedupKey, partId: item.partId, name, mime: item.contentType || 'application/pdf',
           pages: 0, text: '', amount: null as string | null, dueDate: null as string | null,
           bill: looksLikeBill(name, subject, sender), subject, sender, mailDate,
+          account: handle.account, folder: handle.folder, uid: handle.uid,
+          uidValidity: handle.uidValidity, messageId: handle.messageId || null,
           error: null as string | null, indexedAt: new Date().toISOString(),
         };
         try {
@@ -672,7 +804,7 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
             failed += 1;
             continue;
           }
-          const pdf = await extractPdfText(downloaded.content, passwords);
+          const pdf = await extractPdfText(downloaded.content, passwordCandidates(sender, globalPasswords, senderPasswords));
           const amount = extractAmount(pdf.text) ?? null;
           store.saveDocument({
             ...base, pages: pdf.pages, text: pdf.text, amount,
