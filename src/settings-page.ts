@@ -1000,6 +1000,29 @@ body{min-height:100vh}
 .doc-search-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);background:var(--surface)}
 .doc-bills{flex:0 0 auto;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
 .doc-bills .st-label{font-size:13px;color:var(--text-2)}
+.doc-add-item{display:grid;gap:3px;padding:10px 2px;border-bottom:1px solid var(--line)}
+.doc-add-item:first-child{border-top:1px solid var(--line)}
+.doc-add-meta{color:var(--muted);font-size:12px}
+.doc-add-subject{font-weight:600;font-size:14px;line-height:1.35}
+.doc-add-item .st-link{padding:3px 0;text-align:left}
+.doc-actions .st-btn{flex:0 0 auto}
+@media(max-width:700px){
+  .doc-actions{justify-content:stretch;flex-wrap:wrap;gap:8px}
+  .doc-actions .st-result{flex:1 1 100%}
+  .doc-actions .st-btn{flex:1 1 0;min-width:0}
+  #doc-table thead{display:none}
+  #doc-table,#doc-table tbody,#doc-table tr,#doc-table td{display:block;width:auto}
+  #doc-table tr{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px}
+  #doc-table td{border:0;padding:3px 0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;text-align:right}
+  #doc-table td::before{content:attr(data-label);color:var(--muted);font-size:12px;font-weight:600;text-align:left;flex:0 0 auto}
+  #doc-table td.doc-file{display:block;text-align:left;font-weight:600;font-size:15px;padding:0 0 6px;line-height:1.35}
+  #doc-table td.doc-file::before{content:none}
+  #doc-table td:empty{display:none}
+  #doc-table td.st-table-actions{display:flex;justify-content:flex-start;flex-wrap:wrap;gap:6px 16px;margin-top:8px;padding-top:9px;border-top:1px solid var(--line);text-align:left}
+  #doc-table td.st-table-actions::before{content:none}
+  #doc-table td.st-table-actions .st-link{margin:0}
+  .st-table-wrap{overflow:visible}
+}
 .st-table-wrap{overflow-x:auto}
 .st-table-actions{white-space:nowrap;text-align:right}
 .st-table-actions .st-link{font-size:12.5px;margin-left:10px}
@@ -1319,7 +1342,7 @@ export function renderAuditPage(
         <div class="st-header-actions">
           <a class="word-btn" href="/users">${s('users.title')}</a>
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
-          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <a class="word-btn st-back" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">‹</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
         </div>
@@ -1468,7 +1491,7 @@ export function renderSyncPage(lang: Language, nonce: string, version: string, r
         <span class="st-crumb">${s('sync.title')}</span>
         <div class="st-header-actions">
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
-          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <a class="word-btn st-back" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">‹</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
         </div>
@@ -1624,7 +1647,7 @@ export function renderDocumentsPage(
         <span class="st-crumb">${s('docs.title')} · ${escapeHtml(user.username)}</span>
         <div class="st-header-actions">
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
-          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <a class="word-btn st-back" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">‹</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
         </div>
@@ -1635,7 +1658,7 @@ export function renderDocumentsPage(
         <h2>${s('docs.title')}</h2>
         <p class="st-lede">${s('docs.lede')}</p>
         <p class="st-help">${s('docs.passwordHint')}</p>
-        <div class="st-foot">
+        <div class="st-foot doc-actions">
           <span class="st-result" id="doc-status"></span>
           <button type="button" class="st-btn" id="doc-retry">${s('docs.retry')}</button>
           <button type="button" class="st-btn" id="doc-index">${s('docs.index')}</button>
@@ -1744,11 +1767,15 @@ export function renderDocumentsPage(
         sender: ${JSON.stringify(s('docs.sender'))},
         subject: ${JSON.stringify(s('docs.subject'))},
         folder: ${JSON.stringify(s('docs.folder'))},
+        pages: ${JSON.stringify(s('docs.pages'))},
+        amount: ${JSON.stringify(s('docs.amount'))},
+        due: ${JSON.stringify(s('docs.due'))},
         addDone: ${JSON.stringify(s('docs.addDone'))},
       };
-      function cell(text, className) {
+      function cell(text, className, label) {
         var td = document.createElement('td');
         if (className) td.className = className;
+        if (label) td.setAttribute('data-label', label);
         td.textContent = text == null ? '' : String(text);
         return td;
       }
@@ -1904,6 +1931,7 @@ export function renderDocumentsPage(
         documents.forEach(function (docItem) {
           var tr = document.createElement('tr');
           var nameCell = document.createElement('td');
+          nameCell.className = 'doc-file';
           nameCell.textContent = (docItem.bill ? '🧾 ' : '') + (docItem.name || '');
           if (docItem.error === 'password') {
             var locked = document.createElement('span');
@@ -1920,12 +1948,12 @@ export function renderDocumentsPage(
             nameCell.appendChild(gone);
           }
           tr.appendChild(nameCell);
-          tr.appendChild(cell(docItem.subject || ''));
-          tr.appendChild(cell(docItem.senderName || docItem.sender || ''));
-          tr.appendChild(cell((docItem.mailDate || '').slice(0, 10)));
-          tr.appendChild(cell(docItem.pages || '', 'num'));
-          tr.appendChild(cell(docItem.amount || '', 'num'));
-          tr.appendChild(cell(docItem.dueDate || '', 'num'));
+          tr.appendChild(cell(docItem.subject || '', '', labels.subject));
+          tr.appendChild(cell(docItem.senderName || docItem.sender || '', '', labels.sender));
+          tr.appendChild(cell((docItem.mailDate || '').slice(0, 10), '', labels.date));
+          tr.appendChild(cell(docItem.pages || '', 'num', labels.pages));
+          tr.appendChild(cell(docItem.amount || '', 'num', labels.amount));
+          tr.appendChild(cell(docItem.dueDate || '', 'num', labels.due));
           var actions = document.createElement('td');
           actions.className = 'st-table-actions';
           actions.appendChild(actionLink(
@@ -2009,30 +2037,27 @@ export function renderDocumentsPage(
           if (!response.ok) throw new Error(data.error || 'failed');
           if (!data.items.length) { result.textContent = labels.none; return; }
           result.textContent = '';
-          var table = document.createElement('table');
-          table.className = 'st-table';
-          var thead = document.createElement('thead');
-          var hr = document.createElement('tr');
-          [labels.date, labels.sender, labels.subject, labels.folder, ''].forEach(function (text) {
-            var th = document.createElement('th'); th.textContent = text; hr.appendChild(th);
-          });
-          thead.appendChild(hr); table.appendChild(thead);
-          var tbody = document.createElement('tbody');
+          var list = document.createElement('div');
           data.items.forEach(function (item) {
-            var tr = document.createElement('tr');
-            tr.appendChild(cell((item.date || '').slice(0, 10)));
-            tr.appendChild(cell(item.from && (item.from.name || item.from.address)));
-            tr.appendChild(cell(item.subject));
-            tr.appendChild(cell(item.folder));
-            var td = document.createElement('td');
+            var box = document.createElement('div');
+            box.className = 'doc-add-item';
+            var meta = document.createElement('div');
+            meta.className = 'doc-add-meta';
+            meta.textContent = [
+              (item.date || '').slice(0, 10),
+              item.from && (item.from.name || item.from.address),
+              item.folder,
+            ].filter(Boolean).join(' · ');
+            var subject = document.createElement('div');
+            subject.className = 'doc-add-subject';
+            subject.textContent = item.subject || '';
             var add = document.createElement('button');
             add.type = 'button'; add.className = 'st-link'; add.textContent = labels.addPdfs;
             add.onclick = function () { add.disabled = true; addPdfs(item).catch(function (error) { add.disabled = false; result.className = 'st-result bad'; result.textContent = error.message; }); };
-            td.appendChild(add); tr.appendChild(td);
-            tbody.appendChild(tr);
+            box.appendChild(meta); box.appendChild(subject); box.appendChild(add);
+            list.appendChild(box);
           });
-          table.appendChild(tbody);
-          hits.appendChild(table);
+          hits.appendChild(list);
         } catch (error) {
           result.className = 'st-result bad';
           result.textContent = error.message;
