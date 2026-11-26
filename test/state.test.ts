@@ -1078,3 +1078,21 @@ describe('push subscriptions', () => {
     expect(s.listPushSubscriptions()).toHaveLength(1);
   });
 });
+
+describe('the documents shortcut counts', () => {
+  const paper = (partId: string, bill: boolean) => ({
+    dedupKey: 'account|<message@example>', partId, name: `paper-${partId}.pdf`,
+    mime: 'application/pdf', pages: 1, text: '', amount: null, dueDate: null, bill,
+    subject: null, sender: null, mailDate: null, account: null, folder: null, uid: null,
+    uidValidity: null, messageId: null, error: null, indexedAt: '2026-11-27T00:00:00.000Z',
+  });
+
+  it('counts what is visible, and how many of those are bills', () => {
+    const s = store();
+    s.saveDocument(paper('1', true));
+    s.saveDocument(paper('2', false));
+    s.saveDocument(paper('3', true));
+    s.setDocumentDismissed('account|<message@example>', '3', true);
+    expect(s.documentSummary()).toEqual({ total: 2, bills: 1 });
+  });
+});

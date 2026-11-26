@@ -904,7 +904,6 @@ export function renderSettingsPage(
         <a class="brand" href="${mode === 'setup' ? '/setup' : '/'}"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
         <span class="st-crumb" id="crumb">${escapeHtml(title)}</span>
         <div class="st-header-actions">
-          ${mode === 'settings' ? `<a class="word-btn" href="/documents">${escapeHtml(d['nav.documents']!)}</a>` : ''}
           ${mode === 'settings' ? `<a class="word-btn" href="/sync">${escapeHtml(d['nav.sync']!)}</a>` : ''}
           ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/users">${escapeHtml(d['nav.users']!)}</a>` : ''}
           ${mode === 'settings' ? `<a class="word-btn" href="/insights">${escapeHtml(d['insights.title']!)}</a>` : ''}

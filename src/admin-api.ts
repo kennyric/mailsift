@@ -777,6 +777,15 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     }
   }
 
+  if (path === '/api/documents/summary' && req.method === 'GET') {
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      return ok(store.documentSummary());
+    } finally {
+      store.close();
+    }
+  }
+
   if (path === '/api/documents' && req.method === 'GET') {
     const store = new StateStore(storePathFor(ctx.user.id));
     try {

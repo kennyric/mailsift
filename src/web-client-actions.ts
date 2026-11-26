@@ -10,6 +10,8 @@ const actionSheet = $('#action-sheet'), actionBody = $('#action-body'), actionOp
 const taskSheet = $('#task-sheet'), taskBody = $('#task-body');
 const actionPeek = $('#action-peek'), actionBadge = $('#actions-count');
 let actionLoading = false;
+let lastActionSummary = null;
+let documentsAt = 0;
 let taskDraft = null;
 let taskSuggestSeq = 0;
 // Set while a task detail is open; it saves the latest edits and resolves true
@@ -32,6 +34,7 @@ function localDueInput(value) {
 function updateActionPeek(summary) {
   const counts = summary && summary.actionCenter;
   if (!counts) return;
+  lastActionSummary = summary;
   // "due" is a subset of tasks, not another item.
   const total = Number(counts.tasks || 0) + Number(counts.followUps || 0) + Number(counts.deadlines || 0);
   if (actionBadge) {
@@ -39,19 +42,45 @@ function updateActionPeek(summary) {
     actionBadge.textContent = total > 99 ? '99+' : String(total);
   }
   if (!actionPeek) return;
-  actionPeek.hidden = total === 0;
+  actionPeek.classList.toggle('idle', total === 0);
   const text = $('#action-peek-text');
   if (!text) return;
   const bits = [];
-  if (counts.tasks) bits.push(String(counts.tasks) + ' ' + t('action.tasks'));
-  if (counts.followUps) bits.push(String(counts.followUps) + ' ' + t('action.followups'));
-  if (counts.deadlines) bits.push(String(counts.deadlines) + ' ' + t('action.deadlines'));
-  text.replaceChildren(
-    el('span', 'action-peek-title', t('action.title')),
-    el('span', 'action-peek-meta', bits.join(' · ')),
-  );
+  if (counts.tasks) bits.push(fill(counts.tasks === 1 ? 'action.taskCountOne' : 'action.taskCount', { n: counts.tasks }));
+  if (counts.followUps) bits.push(fill(counts.followUps === 1 ? 'action.followupCountOne' : 'action.followupCount', { n: counts.followUps }));
+  if (counts.deadlines) bits.push(fill(counts.deadlines === 1 ? 'action.deadlineCountOne' : 'action.deadlineCount', { n: counts.deadlines }));
+  text.textContent = bits.length ? bits.join(' · ') : t('lede.attention0');
 }
 if (actionPeek) actionPeek.onclick = openActionCenter;
+
+/** The Documents card says how much is waiting there without opening the page. */
+async function refreshDocumentsShortcut(force) {
+  const text = $('#documents-peek-text');
+  if (!text) return;
+  if (!force && Date.now() - documentsAt < 15_000) return;
+  documentsAt = Date.now();
+  try {
+    const response = await fetch('/api/documents/summary', { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('summary');
+    const summary = await response.json();
+    const total = Number(summary.total || 0);
+    const bills = Number(summary.bills || 0);
+    text.textContent = total === 0
+      ? t('documents.empty')
+      : bills > 0
+        ? fill('documents.counts', { total, bills })
+        : fill('documents.files', { total });
+  } catch (error) {
+    text.textContent = '';
+  }
+}
+refreshDocumentsShortcut(true);
+window.addEventListener('pageshow', () => refreshDocumentsShortcut(true));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDocumentsShortcut(false); });
+document.addEventListener('mailsift-language', () => {
+  if (lastActionSummary) updateActionPeek(lastActionSummary);
+  refreshDocumentsShortcut(true);
+});
 
 function actionHeading(text) {
   return el('h3', 'section-label', text);

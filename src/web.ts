@@ -853,6 +853,7 @@ const ICONS: Record<string, string> = {
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
   back: '<path d="M15 6l-6 6 6 6"/>',
   folder: '<path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l1.8 2H19a1.5 1.5 0 0 1 1.5 1.5v7.5A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>',
 };
 
 function iconSymbols(): string {
@@ -919,11 +920,18 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
           <p id="tally" class="tally"></p>
           <p id="status" class="status" role="status" aria-live="polite"></p>
           <button id="health" type="button" class="health-line" aria-haspopup="dialog" aria-controls="health-sheet" aria-expanded="false" hidden></button>
-          <button id="action-peek" type="button" class="action-peek" aria-haspopup="dialog" aria-controls="action-sheet" aria-expanded="false" hidden>
-            <span class="action-peek-icon">${icon('check')}</span>
-            <span id="action-peek-text" class="action-peek-text"></span>
-            <span class="action-peek-arrow">${icon('chevron')}</span>
-          </button>
+          <div class="shortcut-row">
+            <button id="action-peek" type="button" class="shortcut" aria-haspopup="dialog" aria-controls="action-sheet" aria-expanded="false">
+              <span class="shortcut-icon">${icon('check')}</span>
+              <span class="shortcut-text"><b data-i18n="action.title">${s('action.title')}</b><span id="action-peek-text">${s('lede.loading')}</span></span>
+              <span class="shortcut-arrow">${icon('chevron')}</span>
+            </button>
+            <a id="documents-shortcut" class="shortcut docs" href="/documents">
+              <span class="shortcut-icon">${icon('file')}</span>
+              <span class="shortcut-text"><b data-i18n="documents.title">${s('documents.title')}</b><span id="documents-peek-text">${s('lede.loading')}</span></span>
+              <span class="shortcut-arrow">${icon('chevron')}</span>
+            </a>
+          </div>
         </section>
         <form id="filters" class="controls" autocomplete="off">
           <div id="pick-bar" class="pick-bar" hidden>${iconButton('pick-clear', 'x', 'pick.clear')}<span id="pick-count" class="pick-count" role="status"></span><button id="pick-all" type="button" class="text-btn quiet" data-i18n="pick.all">${s('pick.all')}</button><span class="bar-space"></span><div id="pick-actions" class="pick-actions"></div></div>

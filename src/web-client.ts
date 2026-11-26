@@ -1985,6 +1985,7 @@ function applyLanguage(next) {
   if (folderSheet.open) drawFolders();
   if (appearanceSheet && appearanceSheet.open) renderAppearance();
   languageChanged();
+  document.dispatchEvent(new Event('mailsift-language'));
 }
 $('#lang').onclick = () => {
   const next = LANGUAGES[(LANGUAGES.indexOf(lang) + 1) % LANGUAGES.length];

@@ -3392,6 +3392,14 @@ export class StateStore {
     }));
   }
 
+  /** How many visible documents and bills this person has. */
+  documentSummary(): { total: number; bills: number } {
+    const row = this.db.prepare(`SELECT COUNT(*) AS total,
+        COALESCE(SUM(CASE WHEN bill = 1 THEN 1 ELSE 0 END), 0) AS bills
+      FROM documents WHERE dismissed = 0`).get() as { total?: number; bills?: number } | undefined;
+    return { total: Number(row?.total ?? 0), bills: Number(row?.bills ?? 0) };
+  }
+
   documentText(dedupKey: string, partId: string): string | undefined {
     const row = this.db.prepare('SELECT text FROM documents WHERE dedup_key = ? AND part_id = ?')
       .get(dedupKey, partId) as { text: string } | undefined;

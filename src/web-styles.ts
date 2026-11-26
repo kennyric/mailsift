@@ -629,16 +629,21 @@ body.offline #refresh,body.offline .load-more{opacity:.4;pointer-events:none}
 .action-open .icon{width:16px;height:16px;color:var(--accent)}
 .action-label{font-size:12.5px}
 .action-badge{display:inline-block;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-size:10px;font-weight:600;line-height:16px;font-family:inherit;text-align:center}
-.action-peek{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;width:calc(100% - 32px);margin:10px 16px 0;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer;box-shadow:var(--card-shadow)}
-.action-peek[hidden]{display:none}
-.action-peek-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:var(--accent-tint);color:var(--accent)}
-.action-peek-icon .icon{width:15px;height:15px;stroke-width:2.2}
-.action-peek-text{display:flex;flex-direction:column;gap:1px;min-width:0}
-.action-peek-title{font-size:13.5px;font-weight:600}
-.action-peek-meta{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.action-peek-arrow{display:grid;place-items:center;color:var(--muted)}
-.action-peek-arrow .icon{width:16px;height:16px}
-@media(hover:hover){.action-peek:hover{background:var(--fill)}}
+.shortcut-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 16px 0}
+.shortcut{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0;
+padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);
+font:inherit;text-align:left;text-decoration:none;cursor:pointer;box-shadow:var(--card-shadow);transition:border-color .12s,background .12s}
+.shortcut-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:var(--accent-tint);color:var(--accent)}
+.shortcut-icon .icon{width:15px;height:15px;stroke-width:2.2}
+.shortcut-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.shortcut-text b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shortcut-text span{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shortcut-arrow{display:grid;place-items:center;color:var(--muted)}
+.shortcut-arrow .icon{width:15px;height:15px}
+.shortcut:active{background:var(--fill-2)}
+.shortcut.idle .shortcut-icon{background:var(--fill);color:var(--muted)}
+@media(hover:hover){.shortcut:hover{background:var(--fill);border-color:var(--line-strong)}}
+@media(max-width:370px){.shortcut-row{gap:6px;margin-left:12px;margin-right:12px}.shortcut{padding:8px}.shortcut-arrow{display:none}}
 .action-form{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--fill);margin:0 0 14px;box-shadow:var(--card-shadow)}
 .action-form input{min-width:0;width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font:inherit;font-size:15px}
 .action-form input::placeholder{color:var(--muted)}
