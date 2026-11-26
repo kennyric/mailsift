@@ -57,7 +57,7 @@ const EN: Dict = {
   'docs.onlyBills': 'Bills only',
   'docs.searchPlaceholder': 'Search the extracted text…',
   'docs.locked': 'password required',
-  'docs.passwordHint': 'A locked PDF needs its password in Preferences → PDF passwords.',
+  'docs.passwordHint': 'A locked PDF needs its password in Settings → Privacy and retention → PDF passwords.',
   'docs.open': 'Open',
   'docs.close': 'Close',
   'docs.noText': 'No text was extracted.',
@@ -366,7 +366,7 @@ const ZH: Dict = {
   'docs.onlyBills': '只看账单',
   'docs.searchPlaceholder': '搜索提取的文字…',
   'docs.locked': '需要密码',
-  'docs.passwordHint': '锁定的 PDF 需要在“个人偏好 → PDF 密码”里填写密码。',
+  'docs.passwordHint': '锁定的 PDF 需要在“设置 → 隐私与保留 → PDF 密码”里填写密码。',
   'docs.open': '打开',
   'docs.close': '关闭',
   'docs.noText': '没有提取到文字。',
@@ -928,6 +928,14 @@ body{min-height:100vh}
 .st-table th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
 .st-table td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 .st-table td.num{font-variant-numeric:tabular-nums}
+.doc-search{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 18px}
+.doc-search-box{position:relative;display:flex;align-items:center;flex:1 1 280px;min-width:0}
+.doc-search-icon{position:absolute;left:13px;width:17px;height:17px;fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linecap:round;pointer-events:none}
+.doc-search-box input{width:100%;min-height:42px;padding:9px 14px 9px 40px;border:1px solid var(--line);border-radius:11px;background:var(--fill);color:var(--text);font:inherit;font-size:14px;transition:border-color .12s,box-shadow .12s,background .12s}
+.doc-search-box input::placeholder{color:var(--muted)}
+.doc-search-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);background:var(--surface)}
+.doc-bills{flex:0 0 auto;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+.doc-bills .st-label{font-size:13px;color:var(--text-2)}
 .st-users{list-style:none;margin:0 0 22px;padding:0;display:flex;flex-direction:column;gap:10px}
 .st-user{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .st-user.off{opacity:.66}
@@ -1548,7 +1556,6 @@ export function renderDocumentsPage(
         <span class="st-crumb">${s('docs.title')} · ${escapeHtml(user.username)}</span>
         <div class="st-header-actions">
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
-          <a class="word-btn" href="/preferences">${s('nav.preferences')}</a>
           <a class="word-btn" href="/">${s('nav.back')}</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
@@ -1567,12 +1574,12 @@ export function renderDocumentsPage(
         </div>
       </section>
       <section class="st-section">
-        <form class="st-form" id="doc-search">
-          <div class="st-row2">
-            <div class="st-field"><label for="doc-q">${s('docs.searchPlaceholder')}</label>
-              <input id="doc-q" type="search" autocomplete="off" spellcheck="false"></div>
-            <div class="st-field"><label class="st-toggle"><span class="st-label">${s('docs.onlyBills')}</span><input type="checkbox" id="doc-bills"></label></div>
-          </div>
+        <form class="doc-search" id="doc-search" role="search">
+          <label class="doc-search-box">
+            <svg class="doc-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <input id="doc-q" type="search" placeholder="${s('docs.searchPlaceholder')}" aria-label="${s('docs.searchPlaceholder')}" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="st-toggle doc-bills"><span class="st-label">${s('docs.onlyBills')}</span><input type="checkbox" id="doc-bills" role="switch"></label>
         </form>
         <table class="st-table" id="doc-table">
           <thead><tr>
