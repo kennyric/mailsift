@@ -150,7 +150,7 @@ function drawDeadline(row, redraw) {
     dismiss.type = 'button';
     dismiss.title = t('action.dismiss');
     dismiss.setAttribute('aria-label', t('action.dismiss'));
-    dismiss.appendChild(icon('x'));
+    dismiss.appendChild(icon('i-x'));
     dismiss.onclick = () => dismissDeadlines([row.dedupKey], redraw, dismiss);
     tools.appendChild(dismiss);
   }
@@ -211,7 +211,7 @@ async function addTasksFromMessages(keys, redraw, button) {
 function drawFollowUp(row) {
   const item = el('div', 'action-row');
   const clock = el('span', 'mark later');
-  clock.appendChild(icon('clock'));
+  clock.appendChild(icon('i-clock'));
   const copy = el('div', 'action-copy');
   copy.appendChild(el('div', 'action-title', row.subject || '(no subject)'));
   copy.appendChild(el('div', 'action-meta', [
@@ -241,30 +241,39 @@ async function drawActionCenter() {
     const redraw = drawActionCenter;
 
     const form = el('form', 'action-form');
+    form.setAttribute('aria-label', t('action.newTask'));
     const title = el('input');
     title.name = 'title';
     title.type = 'text';
     title.placeholder = t('action.taskTitle');
     title.setAttribute('aria-label', t('action.taskTitle'));
-    const due = el('input');
-    due.name = 'due';
-    due.type = 'datetime-local';
-    due.setAttribute('aria-label', t('action.due'));
     const notes = el('input');
     notes.name = 'notes';
     notes.type = 'text';
     notes.placeholder = t('action.notes');
-    const add = el('button', 'primary-action', t('action.add'));
+    notes.setAttribute('aria-label', t('action.notes'));
+    const due = el('input');
+    due.name = 'due';
+    due.type = 'datetime-local';
+    due.setAttribute('aria-label', t('action.due'));
+    const dueField = el('label', 'action-form-due');
+    dueField.append(el('span', 'action-form-label', t('action.dueOptional')), due);
+    const add = el('button', 'primary-action action-form-add');
     add.type = 'submit';
+    add.append(icon('i-plus'), el('span', null, t('action.add')));
     const draft = taskDraft;
     taskDraft = null;
     if (draft) title.value = draft.title;
     const suggestionNote = el('p', 'action-suggest', '');
-    form.append(title, due, notes, suggestionNote, add);
+    suggestionNote.hidden = true;
+    const foot = el('div', 'action-form-foot');
+    foot.append(dueField, add);
+    form.append(title, notes, suggestionNote, foot);
     let touched = false;
     for (const input of [title, notes, due]) input.addEventListener('input', () => { touched = true; });
     if (draft && draft.key) {
       const seq = ++taskSuggestSeq;
+      suggestionNote.hidden = false;
       suggestionNote.className = 'action-suggest reading';
       suggestionNote.textContent = t('action.taskSuggestion');
       post('/api/tasks/suggest', { key: draft.key }).then((answer) => {

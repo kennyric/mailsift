@@ -490,11 +490,18 @@ body.offline #refresh,body.offline .load-more{opacity:.4;pointer-events:none}
 .action-peek-arrow{display:grid;place-items:center;color:var(--muted)}
 .action-peek-arrow .icon{width:16px;height:16px}
 @media(hover:hover){.action-peek:hover{background:var(--fill)}}
-.action-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:0 0 16px;border-bottom:1px solid var(--line);margin-bottom:6px}
-.action-form input{min-width:0;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--fill);color:var(--text);font:inherit;font-size:15px}
-.action-form input[name=title],.action-form input[name=notes]{grid-column:1/-1}
-.action-form .primary-action{grid-column:2;align-self:end;min-height:42px}
-.action-form .action-suggest{grid-column:1/-1;margin:0;font-size:12px;line-height:1.4;color:var(--muted)}
+.action-form{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--fill);margin:0 0 14px;box-shadow:var(--card-shadow)}
+.action-form input{min-width:0;width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font:inherit;font-size:15px}
+.action-form input::placeholder{color:var(--muted)}
+.action-form input:focus{border-color:var(--accent)}
+.action-form input[name=title]{font-size:16px;font-weight:500}
+.action-form-foot{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
+.action-form-due{display:flex;flex:1 1 170px;flex-direction:column;gap:4px;min-width:0}
+.action-form-label{font-size:11.5px;font-weight:600;color:var(--muted)}
+.action-form-due input{font-size:14px}
+.action-form-add{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;min-height:42px;padding:8px 14px}
+.action-form-add .icon{width:16px;height:16px;stroke-width:2.2}
+.action-form .action-suggest{margin:0;font-size:12px;line-height:1.4;color:var(--muted)}
 .action-form .action-suggest.ok{color:var(--ok)}
 .action-bulk{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:0 0 8px;border-bottom:1px solid var(--line);margin-bottom:2px}
 .action-bulk-hint{font-size:12px;color:var(--muted)}

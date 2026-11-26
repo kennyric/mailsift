@@ -2911,6 +2911,20 @@ describe('the parts of the page script', () => {
     expect(script).toContain("t('action.dismissSelected')");
     expect(script).toContain("el('button', 'icon-btn small action-dismiss')");
   });
+
+  it('lays the manual task form out as one card with a labelled due field', () => {
+    const script = clientScript();
+    expect(script).toContain("form.setAttribute('aria-label', t('action.newTask'));");
+    expect(script).toContain("const dueField = el('label', 'action-form-due');");
+    expect(script).toContain("t('action.dueOptional')");
+    expect(script).toContain("el('button', 'primary-action action-form-add')");
+    expect(script).toContain("add.append(icon('i-plus'), el('span', null, t('action.add')));");
+    expect(script).toContain("const foot = el('div', 'action-form-foot');");
+    expect(script).toContain('suggestionNote.hidden = true;');
+    // The dismiss and follow-up marks use the page's own symbols.
+    expect(script).toContain("dismiss.appendChild(icon('i-x'));");
+    expect(script).toContain("clock.appendChild(icon('i-clock'));");
+  });
 });
 
 describe('picking many messages in the page', () => {

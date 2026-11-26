@@ -823,6 +823,7 @@ const ICONS: Record<string, string> = {
   chevron: '<path d="M9 6l6 6-6 6"/>',
   arrow: '<path d="M7 17L17 7M8 7h9v9"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   reply: '<path d="M10 8l-5 5 5 5"/><path d="M5 13h9a5 5 0 0 1 5 5v1"/>',
