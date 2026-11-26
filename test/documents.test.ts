@@ -33,10 +33,12 @@ describe('bill hints', () => {
     expect(looksLikeBill('holiday-photo.jpg', 'Trip photos')).toBe(false);
   });
 
-  it('reads a rupiah or dollar amount as written', () => {
+  it('writes every extracted amount in the same currency format', () => {
     expect(extractAmount('Total Rp 1.234.567,00')).toBe('Rp 1.234.567,00');
-    expect(extractAmount('Amount due: IDR 250.000')).toBe('IDR 250.000');
+    expect(extractAmount('Amount due: IDR 250.000')).toBe('Rp 250.000');
     expect(extractAmount('Total $10.00 USD due')).toBe('$10.00');
+    expect(extractAmount('Jumlah Rp. 2,741,577.39')).toBe('Rp 2.741.577,39');
+    expect(extractAmount('Total USD 1,006,507.51')).toBe('$1,006,507.51');
     expect(extractAmount('no money here')).toBeUndefined();
   });
 

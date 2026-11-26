@@ -9,6 +9,7 @@
 import { getLogger } from '../logger.js';
 import { aiGatewayHeaders } from './decider.js';
 import { llmConfigForUser } from './llm-config.js';
+import { formatAmount } from './money.js';
 import { resolveLlmBaseUrl } from './triage.js';
 
 const log = getLogger('bill-ai');
@@ -140,7 +141,7 @@ export async function extractBillWithAI(userID: string, text: string): Promise<B
     const parsed = parseJson(content);
     if (!parsed) return {};
     const currency = clean(parsed['currency'], 16) ?? detectCurrency(text);
-    const amount = amountWithCurrency(clean(parsed['amount'], 80), currency);
+    const amount = formatAmount(amountWithCurrency(clean(parsed['amount'], 80), currency)) ?? undefined;
     const dueDate = clean(parsed['due_date'], 60);
     return { ...(amount ? { amount } : {}), ...(dueDate ? { dueDate } : {}) };
   } catch (error) {

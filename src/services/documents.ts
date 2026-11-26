@@ -12,6 +12,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { formatAmount } from './money.js';
 
 /** The extraction needs a password that was neither empty nor in the list. */
 export class PdfPasswordError extends Error {
@@ -239,10 +240,14 @@ export function looksLikeBill(...parts: Array<string | null | undefined>): boole
   return parts.some((part) => Boolean(part && BILL.test(part)));
 }
 
-/** The first amount, as it was written. */
+/** The first amount, written the same way the AI writes one. */
+const AMOUNT = /(?:US\$|S\$|HK\$|A\$|C\$|CN¥|IDR|Rp\.?|USD|EUR|GBP|SGD|MYR|JPY|CNY|AUD|CAD|HKD|CHF|THB|PHP|VND|INR|[$€£¥₹₩₽])\s*[0-9][0-9.,']*/i;
+
 export function extractAmount(text: string): string | undefined {
-  const match = /(?:IDR|Rp\.?|USD|US\$|\$)\s*([0-9][0-9.,]{1,})/i.exec(text);
-  return match ? match[0].replace(/\s+/g, ' ').trim() : undefined;
+  const match = AMOUNT.exec(text);
+  if (!match) return undefined;
+  const raw = match[0].replace(/[.,'\s]+$/, '').replace(/\s+/g, ' ').trim();
+  return formatAmount(raw) ?? undefined;
 }
 
 const DATE = /(\d{4}-\d{2}-\d{2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})/;
