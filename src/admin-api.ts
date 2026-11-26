@@ -51,7 +51,7 @@ import {
   SharedSettingsDenied, startUserSession, takePendingSignIn, updateSettingsFor, userByID, usernameProblem, usernameShapeProblem,
   type MailboxSettings, type PendingSignIn, type SettingsDocument, type User,
 } from './services/settings-store.js';
-import { removeStore, storePathFor, StateStore } from './services/state.js';
+import { removeStore, storePathFor, StateStore, type DocumentRecord } from './services/state.js';
 import { HEARTBEAT_KEY } from './services/watcher.js';
 import { releaseLiveHub } from './web-live.js';
 import { forgetLive, forgetSends } from './web-actions.js';
@@ -503,6 +503,23 @@ const allowUnlock = rateWindow(20);
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
 
+/** Where a document's original lives: its own columns, its seen row, or its live key. */
+function documentPlace(store: StateStore, document: DocumentRecord): {
+  account: string; folder: string; uid: number | null; uidValidity: string | null; messageId: string | null;
+} | undefined {
+  if (document.account) {
+    return {
+      account: document.account, folder: document.folder ?? '',
+      uid: document.uid, uidValidity: document.uidValidity, messageId: document.messageId,
+    };
+  }
+  const seen = store.documentLocation(document.dedupKey);
+  if (seen) return seen;
+  // Rows indexed by an earlier live result kept only this key: account, folder, uid.
+  const live = /^live:([^:]+):(.+):(\d+)$/.exec(document.dedupKey);
+  return live ? { account: live[1]!, folder: live[2]!, uid: Number(live[3]), uidValidity: null, messageId: null } : undefined;
+}
+
 /** What the sync page shows about this user's own state. */
 function syncReport(user: User): SyncReport {
   const doc = readSettingsFor(user.id);
@@ -639,12 +656,12 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     try {
       const document = store.getDocument(key, part);
       if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
-      const place = document.account ? undefined : store.documentLocation(document.dedupKey);
-      const accountName = document.account ?? place?.account ?? null;
-      const folder = document.folder ?? place?.folder ?? null;
-      const uid = document.uid ?? place?.uid ?? null;
-      const uidValidity = document.uidValidity ?? place?.uidValidity ?? null;
-      const messageId = document.messageId ?? place?.messageId ?? null;
+      const place = documentPlace(store, document);
+      const accountName = place?.account ?? null;
+      const folder = place?.folder || null;
+      const uid = place?.uid ?? null;
+      const uidValidity = place?.uidValidity ?? null;
+      const messageId = place?.messageId ?? null;
       const mailbox = accountName ? readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === accountName) : undefined;
       if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
       const account = mailboxAccount(mailbox);
@@ -699,12 +716,12 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     try {
       const document = store.getDocument(key, part);
       if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
-      const place = document.account ? undefined : store.documentLocation(document.dedupKey);
-      const accountName = document.account ?? place?.account ?? null;
-      const folder = document.folder ?? place?.folder ?? null;
-      const uid = document.uid ?? place?.uid ?? null;
-      const uidValidity = document.uidValidity ?? place?.uidValidity ?? null;
-      const messageId = document.messageId ?? place?.messageId ?? null;
+      const place = documentPlace(store, document);
+      const accountName = place?.account ?? null;
+      const folder = place?.folder || null;
+      const uid = place?.uid ?? null;
+      const uidValidity = place?.uidValidity ?? null;
+      const messageId = place?.messageId ?? null;
       const mailbox = accountName ? readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === accountName) : undefined;
       if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
       const account = mailboxAccount(mailbox);
