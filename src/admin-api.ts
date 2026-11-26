@@ -33,7 +33,7 @@ import { renderAuditPage, renderClaimPage, renderDocumentsPage, renderInsightsPa
 import { otpauthUrl } from './services/totp.js';
 import { sendTestNotification } from './services/sink.js';
 import {
-  decryptPdf, extractAmount, extractDueDate, extractPdfText, looksLikeBill, parsePasswords,
+  decryptPdf, extractAmount, extractDueDate, extractPdfText, looksLikeBill, parsePasswords, renderPdfPage,
   parseSenderPasswords, passwordCandidates, PdfPasswordError,
 } from './services/documents.js';
 import { indexPdfDocuments } from './services/document-index.js';
@@ -527,6 +527,104 @@ function documentPlace(store: StateStore, document: DocumentRecord): {
   return live ? { account: live[1]!, folder: live[2]!, uid: Number(live[3]), uidValidity: null, messageId: null } : undefined;
 }
 
+/**
+ * A password typed in this session but not remembered for the sender. It is
+ * kept in memory only, so the viewer still opens the file the person just
+ * unlocked, while an unchecked Remember leaves no lasting copy.
+ */
+const recentUnlocks = new Map<string, { password: string; at: number }>();
+const unlockKey = (userID: string, key: string, part: string): string => `${userID}\u0000${key}\u0000${part}`;
+
+function cachedUnlock(userID: string, key: string, part: string): string | undefined {
+  const entry = recentUnlocks.get(unlockKey(userID, key, part));
+  if (!entry) return undefined;
+  if (Date.now() - entry.at > 15 * 60_000) {
+    recentUnlocks.delete(unlockKey(userID, key, part));
+    return undefined;
+  }
+  return entry.password;
+}
+
+/**
+ * A decrypted PDF stays in memory for a few minutes so flipping through its
+ * pages does not download and decrypt it again for every page. It is never
+ * written to disk and is dropped when the limit or the time runs out.
+ */
+const recentPdfs = new Map<string, { data: Buffer; at: number }>();
+const PDF_CACHE_MS = 10 * 60_000;
+const PDF_CACHE_BYTES = 96 * 1024 * 1024;
+
+function cachedPdf(cacheKey: string): Buffer | undefined {
+  const entry = recentPdfs.get(cacheKey);
+  if (!entry) return undefined;
+  if (Date.now() - entry.at > PDF_CACHE_MS) {
+    recentPdfs.delete(cacheKey);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function rememberPdf(cacheKey: string, data: Buffer): void {
+  let total = data.length;
+  for (const [key, entry] of recentPdfs) {
+    if (Date.now() - entry.at > PDF_CACHE_MS) {
+      recentPdfs.delete(key);
+      continue;
+    }
+    total += entry.data.length;
+  }
+  // Map keeps insertion order, so this drops the oldest first.
+  for (const [key, entry] of recentPdfs) {
+    if (total <= PDF_CACHE_BYTES) break;
+    recentPdfs.delete(key);
+    total -= entry.data.length;
+  }
+  if (data.length <= PDF_CACHE_BYTES) recentPdfs.set(cacheKey, { data, at: Date.now() });
+}
+
+function rememberUnlock(userID: string, key: string, part: string, password: string): void {
+  if (recentUnlocks.size > 200) {
+    for (const [known, entry] of recentUnlocks) {
+      if (Date.now() - entry.at > 15 * 60_000) recentUnlocks.delete(known);
+    }
+    if (recentUnlocks.size > 500) recentUnlocks.clear();
+  }
+  recentUnlocks.set(unlockKey(userID, key, part), { password, at: Date.now() });
+}
+
+/** The original attachment, decrypted with the remembered or session password. */
+async function readDocumentPdf(userID: string, store: StateStore, document: DocumentRecord, part: string): Promise<Buffer> {
+  const cacheKey = unlockKey(userID, document.dedupKey, part);
+  const known = cachedPdf(cacheKey);
+  if (known) return known;
+  const place = documentPlace(store, document);
+  if (!place) throw new Error('the message is not available');
+  const mailbox = readSettingsFor(userID).mailboxes.find((m) => m.username === place.account);
+  if (!mailbox) throw new Error('the mailbox is not configured');
+  const account = mailboxAccount(mailbox);
+  const downloaded = place.folder && place.uid !== null && place.uidValidity
+    ? await fetchAttachmentByUid(account, place.folder, place.uid, place.uidValidity, part, {
+      asStored: true, limit: 25 * 1024 * 1024,
+    })
+    : place.messageId
+      ? await fetchAttachmentByMessageId(account, place.messageId, part, undefined, {
+        asStored: true, limit: 25 * 1024 * 1024,
+      })
+      : undefined;
+  if (!downloaded) throw new Error('the attachment is no longer in the mailbox');
+  const personal = readPersonalValues(userID);
+  const passwords = passwordCandidates(
+    document.sender,
+    parsePasswords(personal['PDF_PASSWORDS']),
+    parseSenderPasswords(personal['PDF_SENDER_PASSWORDS']),
+  );
+  const cached = cachedUnlock(userID, document.dedupKey, part);
+  if (cached && !passwords.includes(cached)) passwords.push(cached);
+  const pdf = await decryptPdf(downloaded.content, passwords);
+  rememberPdf(cacheKey, pdf);
+  return pdf;
+}
+
 /** What the sync page shows about this user's own state. */
 function syncReport(user: User): SyncReport {
   const doc = readSettingsFor(user.id);
@@ -716,6 +814,9 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         ...document, pages, text, amount, dueDate,
         bill: document.bill || Boolean(amount), error: null, indexedAt: new Date().toISOString(),
       });
+      rememberUnlock(ctx.user.id, document.dedupKey, part, password);
+      // A password typed now may differ from what was cached before.
+      recentPdfs.delete(unlockKey(ctx.user.id, document.dedupKey, part));
       log.info(`Unlocked a PDF for ${ctx.user.username}${remember && document.sender ? ` and remembered its password for ${document.sender}` : ''}.`);
       return ok({ unlocked: true, remembered: remember && Boolean(document.sender), pages });
     } catch (error) {
@@ -735,32 +836,9 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     try {
       const document = store.getDocument(key, part);
       if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
-      const place = documentPlace(store, document);
-      const accountName = place?.account ?? null;
-      const folder = place?.folder || null;
-      const uid = place?.uid ?? null;
-      const uidValidity = place?.uidValidity ?? null;
-      const messageId = place?.messageId ?? null;
-      const mailbox = accountName ? readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === accountName) : undefined;
-      if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
-      const account = mailboxAccount(mailbox);
-      const downloaded = folder && uid !== null && uidValidity
-        ? await fetchAttachmentByUid(account, folder, uid, uidValidity, part, {
-          asStored: true, limit: 25 * 1024 * 1024,
-        })
-        : messageId
-          ? await fetchAttachmentByMessageId(account, messageId, part, undefined, { asStored: true, limit: 25 * 1024 * 1024 })
-          : undefined;
-      if (!downloaded) return fail(404, 'not_found', zh ? '邮箱里找不到这个附件。' : 'That attachment is no longer in the mailbox.');
-      const personal = readPersonalValues(ctx.user.id);
-      const passwords = passwordCandidates(
-        document.sender,
-        parsePasswords(personal['PDF_PASSWORDS']),
-        parseSenderPasswords(personal['PDF_SENDER_PASSWORDS']),
-      );
       let pdf: Buffer;
       try {
-        pdf = await decryptPdf(downloaded.content, passwords);
+        pdf = await readDocumentPdf(ctx.user.id, store, document, part);
       } catch (error) {
         if (error instanceof PdfPasswordError) {
           return fail(409, 'password_required', zh ? '这个 PDF 需要密码。' : 'This PDF needs its password.');
@@ -781,6 +859,48 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
     } catch (error) {
       log.warn(`PDF view failed: ${String(error).slice(0, 200)}`);
       return fail(502, 'pdf_failed', zh ? '暂时无法打开这个 PDF。' : 'The PDF could not be opened right now.');
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/page' && req.method === 'GET') {
+    const key = (url.searchParams.get('key') ?? '').slice(0, 5000);
+    const part = (url.searchParams.get('part') ?? '').slice(0, 40);
+    const page = Number(url.searchParams.get('page') ?? '1');
+    if (!key || !part || !Number.isInteger(page) || page < 1 || page > 200) {
+      return fail(400, 'missing', zh ? '缺少文档或页码。' : 'A document and a page are required.');
+    }
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const document = store.getDocument(key, part);
+      if (!document) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      let pdf: Buffer;
+      try {
+        pdf = await readDocumentPdf(ctx.user.id, store, document, part);
+      } catch (error) {
+        if (error instanceof PdfPasswordError) {
+          return fail(409, 'password_required', zh ? '这个 PDF 需要密码。' : 'This PDF needs its password.');
+        }
+        throw error;
+      }
+      let png: Buffer;
+      try {
+        png = await renderPdfPage(pdf, page);
+      } catch (error) {
+        log.warn(`PDF page render failed: ${String(error).slice(0, 160)}`);
+        return fail(404, 'no_page', zh ? '这个 PDF 没有这一页。' : 'That page does not exist in this PDF.');
+      }
+      return {
+        status: 200,
+        body: png,
+        contentType: 'image/png',
+        cacheControl: 'private, no-store',
+        headers: { 'x-content-type-options': 'nosniff' },
+      };
+    } catch (error) {
+      log.warn(`PDF page failed: ${String(error).slice(0, 200)}`);
+      return fail(502, 'page_failed', zh ? '暂时无法显示这一页。' : 'That page could not be shown right now.');
     } finally {
       store.close();
     }

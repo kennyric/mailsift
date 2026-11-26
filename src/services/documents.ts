@@ -156,6 +156,47 @@ export async function decryptPdf(data: Buffer, passwords: readonly string[] = []
   throw locked ? new PdfPasswordError() : new Error('the PDF could not be opened');
 }
 
+function runProcess(command: string, args: string[], timeoutMs: number): Promise<{ code: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length < 4000) stderr += chunk.toString();
+    });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      resolve({ code: null, stderr: error.message });
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, stderr });
+    });
+  });
+}
+
+/** One page of a decrypted PDF as a PNG, for the mobile viewer. */
+export async function renderPdfPage(pdf: Buffer, page: number): Promise<Buffer> {
+  if (!Number.isInteger(page) || page < 1 || page > 500) throw new Error('page out of range');
+  const dir = await mkdtemp(join(tmpdir(), 'mailsift-page-'));
+  const input = join(dir, 'in.pdf');
+  const prefix = join(dir, 'page');
+  try {
+    await writeFile(input, pdf, { mode: 0o600 });
+    const result = await runProcess(
+      'pdftoppm',
+      ['-png', '-r', '150', '-f', String(page), '-l', String(page), '-singlefile', input, prefix],
+      30_000,
+    );
+    if (result.code !== 0) {
+      throw new Error(result.stderr.trim().slice(0, 200) || `pdftoppm exited ${result.code}`);
+    }
+    return await readFile(`${prefix}.png`);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function runQpdf(data: Buffer, password: string): Promise<
   { ok: true; output: Buffer } | { ok: false; locked: boolean; error: string }
 > {
@@ -169,22 +210,7 @@ async function runQpdf(data: Buffer, password: string): Promise<
     const args = ['--decrypt'];
     if (password) args.push(`--password-file=${secret}`);
     args.push(input, output);
-    const result = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
-      const child = spawn('qpdf', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-      let stderr = '';
-      const timer = setTimeout(() => child.kill('SIGKILL'), 25_000);
-      child.stderr.on('data', (chunk: Buffer) => {
-        if (stderr.length < 4000) stderr += chunk.toString();
-      });
-      child.once('error', (error) => {
-        clearTimeout(timer);
-        resolve({ code: null, stderr: error.message });
-      });
-      child.once('close', (code) => {
-        clearTimeout(timer);
-        resolve({ code, stderr });
-      });
-    });
+    const result = await runProcess('qpdf', args, 25_000);
     const text = result.stderr.toLowerCase();
     if (text.includes('invalid password') || text.includes('incorrect password')) {
       return { ok: false, locked: true, error: 'password' };

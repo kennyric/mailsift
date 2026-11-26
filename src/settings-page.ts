@@ -73,6 +73,7 @@ const EN: Dict = {
   'docs.unlocking': 'Unlocking…',
   'docs.wrongPassword': 'That password did not open the file.',
   'docs.openTab': 'Open in a new tab',
+  'docs.pdfFailed': 'This document could not be shown. Try opening it in a new tab.',
   'docs.showDismissed': 'Show dismissed',
   'docs.addTitle': 'Add a message',
   'docs.addHint': 'Search a mailbox for a message whose PDFs were not indexed, then add them here.',
@@ -414,6 +415,7 @@ const ZH: Dict = {
   'docs.unlocking': '解锁中…',
   'docs.wrongPassword': '这个密码打不开文件。',
   'docs.openTab': '在新标签页打开',
+  'docs.pdfFailed': '无法显示这个文档，请尝试在新标签页打开。',
   'docs.showDismissed': '显示已忽略',
   'docs.addTitle': '添加邮件',
   'docs.addHint': '在邮箱中搜索没有索引 PDF 的邮件，然后在这里添加。',
@@ -998,8 +1000,13 @@ body{min-height:100vh}
 .doc-search-box input{width:100%;min-height:42px;padding:9px 14px 9px 40px;border:1px solid var(--line);border-radius:11px;background:var(--fill);color:var(--text);font:inherit;font-size:14px;transition:border-color .12s,box-shadow .12s,background .12s}
 .doc-search-box input::placeholder{color:var(--muted)}
 .doc-search-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);background:var(--surface)}
-.doc-bills{flex:0 0 auto;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
-.doc-bills .st-label{font-size:13px;color:var(--text-2)}
+.doc-bills{flex:0 0 auto;align-items:center;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+.doc-bills .st-label{font-size:13px;color:var(--text-2);line-height:1.2}
+.doc-bills input{margin:0}
+.doc-viewer{display:grid;gap:10px;max-height:64vh;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--fill);-webkit-overflow-scrolling:touch}
+.doc-viewer img{display:block;width:100%;height:auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.doc-viewer .st-help{margin:0;padding:24px 18px;text-align:center}
+.doc-dialog .st-dialog-body{padding:10px 14px 14px}
 .doc-add-item{display:grid;gap:3px;padding:10px 2px;border-bottom:1px solid var(--line)}
 .doc-add-item:first-child{border-top:1px solid var(--line)}
 .doc-add-meta{color:var(--muted);font-size:12px}
@@ -1007,6 +1014,11 @@ body{min-height:100vh}
 .doc-add-item .st-link{padding:3px 0;text-align:left}
 .doc-actions .st-btn{flex:0 0 auto}
 @media(max-width:700px){
+  .doc-dialog{width:calc(100vw - 12px);max-height:calc(100vh - 16px)}
+  .doc-dialog .st-dialog-head{padding:12px 14px 4px}
+  .doc-dialog .st-dialog-foot{padding:10px 14px}
+  .doc-viewer{max-height:62vh;padding:5px;gap:6px}
+  .doc-bills{flex:1 1 0}
   .doc-actions{justify-content:stretch;flex-wrap:wrap;gap:8px}
   .doc-actions .st-result{flex:1 1 100%}
   .doc-actions .st-btn{flex:1 1 0;min-width:0}
@@ -1705,9 +1717,9 @@ export function renderDocumentsPage(
         <div class="st-dialog-foot"><span class="st-spacer"></span><button class="st-btn primary" value="close">${s('docs.close')}</button></div>
       </form>
     </dialog>
-    <dialog class="st-dialog" id="pdf-dialog">
+    <dialog class="st-dialog doc-dialog" id="pdf-dialog">
       <div class="st-dialog-head"><h2 id="pdf-title"></h2></div>
-      <div class="st-dialog-body"><iframe id="pdf-frame" title="${s('docs.pdf')}" style="width:100%;height:60vh;border:0;border-radius:8px;background:var(--fill)"></iframe></div>
+      <div class="st-dialog-body"><div class="doc-viewer" id="pdf-pages"></div></div>
       <div class="st-dialog-foot">
         <a class="st-btn" id="pdf-tab" target="_blank" rel="noopener">${s('docs.openTab')}</a>
         <span class="st-spacer"></span>
@@ -1748,6 +1760,7 @@ export function renderDocumentsPage(
         left: ${JSON.stringify(s('docs.left'))},
         indexing: ${JSON.stringify(s('docs.indexing'))},
         pdf: ${JSON.stringify(s('docs.pdf'))},
+        pdfFailed: ${JSON.stringify(s('docs.pdfFailed'))},
         text: ${JSON.stringify(s('docs.text'))},
         unlock: ${JSON.stringify(s('docs.unlock'))},
         unlocking: ${JSON.stringify(s('docs.unlocking'))},
@@ -1785,27 +1798,43 @@ export function renderDocumentsPage(
         $('doc-dialog-text').textContent = document.text || labels.noText;
         dialog.showModal();
       }
-      var pdfUrl = '';
       var unlockTarget = null;
-      function clearPdf() {
-        if (pdfUrl) { URL.revokeObjectURL(pdfUrl); pdfUrl = ''; }
-        $('pdf-frame').removeAttribute('src');
+      function pdfParams(docItem) {
+        return 'key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId);
       }
+      function clearPdf() { $('pdf-pages').textContent = ''; }
       function closePdf() { var dialog = $('pdf-dialog'); if (dialog.open) dialog.close(); }
       $('pdf-close').onclick = closePdf;
       $('pdf-dialog').addEventListener('close', clearPdf);
 
-      async function openPdf(docItem) {
+      /**
+       * Each page is a PNG rendered by the server at reading resolution. An
+       * iframe around the PDF itself stays blank in several phone browsers,
+       * while plain images work everywhere and can be pinched to zoom.
+       */
+      function openPdf(docItem) {
         if (docItem.error === 'password') { openUnlock(docItem); return; }
-        var response = await fetch('/api/documents/pdf?key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId), { credentials: 'same-origin' });
-        if (response.status === 409) { openUnlock(docItem); return; }
-        if (!response.ok) { alert(labels.wrong); return; }
-        var blob = await response.blob();
         clearPdf();
-        pdfUrl = URL.createObjectURL(blob);
         $('pdf-title').textContent = docItem.name || docItem.subject || labels.pdf;
-        $('pdf-frame').src = pdfUrl;
-        $('pdf-tab').href = pdfUrl;
+        $('pdf-tab').href = '/api/documents/pdf?' + pdfParams(docItem);
+        var box = $('pdf-pages');
+        var total = Math.max(1, Math.min(Number(docItem.pages) || 1, 80));
+        for (var page = 1; page <= total; page += 1) {
+          var img = document.createElement('img');
+          img.src = '/api/documents/page?' + pdfParams(docItem) + '&page=' + page;
+          img.alt = (docItem.name || labels.pdf) + ' — ' + page + '/' + total;
+          img.loading = page === 1 ? 'eager' : 'lazy';
+          if (page === 1) {
+            img.onerror = function () {
+              box.textContent = '';
+              var note = document.createElement('p');
+              note.className = 'st-help';
+              note.textContent = labels.pdfFailed;
+              box.appendChild(note);
+            };
+          }
+          box.appendChild(img);
+        }
         $('pdf-dialog').showModal();
       }
 
@@ -1896,7 +1925,7 @@ export function renderDocumentsPage(
           if (!response.ok) {
             throw new Error(data.code === 'wrong_password' ? labels.wrong : (data.error || 'failed'));
           }
-          var opened = { ...unlockTarget, error: null };
+          var opened = { ...unlockTarget, error: null, pages: data.pages || unlockTarget.pages };
           $('unlock-dialog').close();
           await load();
           await openPdf(opened);
