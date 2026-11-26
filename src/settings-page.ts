@@ -80,6 +80,8 @@ const EN: Dict = {
   'docs.zoomOut': 'Zoom out',
   'docs.fit': 'Fit to width',
   'docs.download': 'Download',
+  'docs.fullscreen': 'Full screen',
+  'docs.exitFullscreen': 'Exit full screen',
   'docs.showDismissed': 'Show dismissed',
   'docs.addTitle': 'Add a message',
   'docs.addHint': 'Search a mailbox for a message whose PDFs were not indexed, then add them here.',
@@ -428,6 +430,8 @@ const ZH: Dict = {
   'docs.zoomOut': '缩小',
   'docs.fit': '适应宽度',
   'docs.download': '下载',
+  'docs.fullscreen': '全屏',
+  'docs.exitFullscreen': '退出全屏',
   'docs.showDismissed': '显示已忽略',
   'docs.addTitle': '添加邮件',
   'docs.addHint': '在邮箱中搜索没有索引 PDF 的邮件，然后在这里添加。',
@@ -1015,7 +1019,9 @@ body{min-height:100vh}
 .doc-bills .st-label{font-size:13px;color:var(--text-2);line-height:1.2}
 .doc-bills input{margin:0}
 .doc-tools{display:flex;align-items:center;gap:8px;padding:0 20px 10px;flex-wrap:wrap}
-.doc-tool{min-width:38px;min-height:34px;padding:4px 10px;font-size:15px;font-weight:600;text-decoration:none}
+.doc-tool{display:inline-flex;align-items:center;justify-content:center;min-width:38px;min-height:34px;padding:4px 10px;font-size:15px;font-weight:600;line-height:1;text-decoration:none}
+.doc-tool-icon{padding:0}
+.doc-tool-svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .doc-zoom{appearance:none;border:0;background:none;color:var(--text-2);font:inherit;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;min-width:52px;min-height:34px;padding:0 6px;border-radius:8px;cursor:pointer}
 .doc-zoom:hover{background:var(--fill)}
 .doc-tools .st-spacer{flex:1}
@@ -1024,6 +1030,9 @@ body{min-height:100vh}
 .doc-viewer img,.doc-viewer canvas{display:block;width:100%;height:auto;margin:0 auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .doc-viewer .st-help{margin:0;padding:24px 18px;text-align:center}
 .doc-dialog .st-dialog-body{padding:10px 14px 14px}
+#pdf-dialog:fullscreen,#pdf-dialog.doc-full{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100vh;margin:0;padding:0;border:0;border-radius:0;overflow:hidden;display:flex;flex-direction:column}
+#pdf-dialog:fullscreen .st-dialog-body,#pdf-dialog.doc-full .st-dialog-body{flex:1;min-height:0;overflow:hidden}
+#pdf-dialog:fullscreen .doc-viewer,#pdf-dialog.doc-full .doc-viewer{flex:1;max-height:none;min-height:0}
 .doc-add-item{display:grid;gap:3px;padding:10px 2px;border-bottom:1px solid var(--line)}
 .doc-add-item:first-child{border-top:1px solid var(--line)}
 .doc-add-meta{color:var(--muted);font-size:12px}
@@ -1745,6 +1754,12 @@ export function renderDocumentsPage(
         <button type="button" class="doc-zoom" id="pdf-zoom-reset" title="${s('docs.fit')}" aria-label="${s('docs.fit')}">100%</button>
         <button type="button" class="st-btn doc-tool" id="pdf-zoom-in" aria-label="${s('docs.zoomIn')}" title="${s('docs.zoomIn')}">+</button>
         <span class="st-spacer"></span>
+        <button type="button" class="st-btn doc-tool doc-tool-icon" id="pdf-fullscreen" aria-label="${s('docs.fullscreen')}" title="${s('docs.fullscreen')}" aria-pressed="false">
+          <svg class="doc-tool-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <g id="pdf-fs-expand"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></g>
+            <g id="pdf-fs-collapse" hidden><path d="M3 8h3a2 2 0 0 0 2-2V3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/></g>
+          </svg>
+        </button>
         <a class="st-btn doc-tool" id="pdf-download" download>${s('docs.download')}</a>
       </div>
       <div class="st-dialog-body"><div class="doc-viewer" id="pdf-pages"></div></div>
@@ -1790,6 +1805,8 @@ export function renderDocumentsPage(
         pdf: ${JSON.stringify(s('docs.pdf'))},
         pdfFailed: ${JSON.stringify(s('docs.pdfFailed'))},
         loadingPdf: ${JSON.stringify(s('docs.loadingPdf'))},
+        fullscreen: ${JSON.stringify(s('docs.fullscreen'))},
+        exitFullscreen: ${JSON.stringify(s('docs.exitFullscreen'))},
         text: ${JSON.stringify(s('docs.text'))},
         unlock: ${JSON.stringify(s('docs.unlock'))},
         unlocking: ${JSON.stringify(s('docs.unlocking'))},
@@ -1859,6 +1876,47 @@ export function renderDocumentsPage(
         $('pdf-zoom-reset').disabled = !active;
         $('pdf-zoom-reset').textContent = Math.round(scale * 100) + '%';
       }
+      function pdfFullscreenActive() {
+        var dialog = $('pdf-dialog');
+        return document.fullscreenElement === dialog || dialog.classList.contains('doc-full');
+      }
+      function updatePdfFullscreenButton() {
+        var active = pdfFullscreenActive();
+        var expand = $('pdf-fs-expand'), collapse = $('pdf-fs-collapse'), button = $('pdf-fullscreen');
+        if (!expand || !collapse || !button) return;
+        expand.hidden = active;
+        collapse.hidden = !active;
+        var label = active ? labels.exitFullscreen : labels.fullscreen;
+        button.setAttribute('aria-label', label);
+        button.setAttribute('title', label);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+      async function togglePdfFullscreen() {
+        var dialog = $('pdf-dialog');
+        if (document.fullscreenElement === dialog) {
+          try { await document.exitFullscreen(); } catch (error) { /* already out */ }
+          return;
+        }
+        if (dialog.classList.contains('doc-full')) {
+          dialog.classList.remove('doc-full');
+          updatePdfFullscreenButton();
+          return;
+        }
+        if (dialog.requestFullscreen) {
+          try {
+            await dialog.requestFullscreen();
+            updatePdfFullscreenButton();
+            return;
+          } catch (error) {
+            // A phone browser may refuse element fullscreen; fill the window instead.
+          }
+        }
+        dialog.classList.add('doc-full');
+        updatePdfFullscreenButton();
+      }
+      $('pdf-fullscreen').onclick = togglePdfFullscreen;
+      document.addEventListener('fullscreenchange', updatePdfFullscreenButton);
+
       function clearPdf() {
         pdfRun += 1;
         pdfView = null;
@@ -1866,6 +1924,12 @@ export function renderDocumentsPage(
           try { pdfTask.destroy(); } catch (error) { /* already gone */ }
           pdfTask = null;
         }
+        var dialog = $('pdf-dialog');
+        if (document.fullscreenElement === dialog) {
+          document.exitFullscreen().catch(function () { /* already out */ });
+        }
+        dialog.classList.remove('doc-full');
+        updatePdfFullscreenButton();
         $('pdf-pages').textContent = '';
         setZoomControls(false);
       }
