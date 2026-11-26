@@ -164,9 +164,24 @@ export const SETTING_FIELDS: SettingField[] = [
   { key: 'MAIL_ALWAYS_IMPORTANT', section: 'triage', type: 'list', label: w('Always important senders', '总是重要的发件人'), help: w('Addresses or @domain.com, separated by commas.', '地址或 @domain.com，用逗号分隔。') },
   { key: 'MAIL_NEVER_IMPORTANT', section: 'triage', type: 'list', label: w('Never important senders', '从不重要的发件人'), help: w('Addresses or @domain.com, separated by commas.', '地址或 @domain.com，用逗号分隔。') },
   {
+    key: 'PDF_PASSWORDS', section: 'privacy', type: 'secret', advanced: true,
+    label: w('PDF passwords', 'PDF 密码'),
+    help: w('One or more passwords for your own PDF attachments, separated by semicolons. Stored encrypted; locked files are reported, never guessed.', '用于你自己的 PDF 附件的一个或多个密码，用分号分隔。加密保存；锁定的文件只会提示，不会猜测。'),
+  },
+  {
     key: 'PUSH_MIN_IMPORTANCE', section: 'triage', type: 'select', defaultValue: 'warning', options: IMPORTANCE,
     label: w('Push in real time', '实时推送'),
     help: w('The rest waits for the daily digest.', '其余邮件进入每日摘要。'),
+  },
+  {
+    key: 'QUIET_HOURS_START', section: 'triage', type: 'text', advanced: true, placeholder: '22:00',
+    label: w('Quiet hours from', '安静时间从'),
+    help: w('Browser notifications are held from this time until the end. HH:MM, both blank to turn it off.', '浏览器通知会暂存到结束时间。HH:MM；两端都留空即关闭。'),
+  },
+  {
+    key: 'QUIET_HOURS_END', section: 'triage', type: 'text', advanced: true, placeholder: '07:00',
+    label: w('Quiet hours to', '安静时间到'),
+    help: w('The window may cross midnight.', '可以跨过午夜。'),
   },
   {
     key: 'MAIL_KEYWORDS', section: 'triage', type: 'list', advanced: true,

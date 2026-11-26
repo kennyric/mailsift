@@ -17,7 +17,8 @@ import { ConfigError, mailboxAccount, PROVIDER_PRESETS, type AuthKind } from './
 import {
   authorizedScope, authorizedUsernames, buildTokenRecord, exchangeCode, getOAuthProvider, TokenStore,
 } from './imap/auth.js';
-import { discoverMailboxFolders } from './imap/client.js';
+import { discoverMailboxFolders, fetchAttachmentByUid, fetchAttachmentManifestByUid } from './imap/client.js';
+import { parseLiveHandle, searchMailbox, useHandleKey } from './imap/mailbox.js';
 import { imapErrorText } from './imap/connection.js';
 import { getLogger } from './logger.js';
 import { scopeAllowsSending } from './smtp.js';
@@ -25,9 +26,11 @@ import {
   ACCESS_TOKEN_KEYS, checkField, crossFieldProblems, FIELD_BY_KEY, SECRET_KEYS, words, type FieldProblem,
 } from './settings-catalog.js';
 import { barColor, LIGHT_BAR } from './web-styles.js';
-import { renderAuditPage, renderClaimPage, renderInsightsPage, renderSettingsPage, renderUsersPage } from './settings-page.js';
+import { renderAuditPage, renderClaimPage, renderDocumentsPage, renderInsightsPage, renderSettingsPage, renderSyncPage, renderUsersPage, type SyncReport } from './settings-page.js';
 import { otpauthUrl } from './services/totp.js';
 import { sendTestNotification } from './services/sink.js';
+import { extractAmount, extractDueDate, extractPdfText, looksLikeBill, parsePasswords, PdfPasswordError } from './services/documents.js';
+import { indexPdfDocuments } from './services/document-index.js';
 import { resolveLlmBaseUrl } from './services/triage.js';
 import { aiGatewayHeaders } from './services/decider.js';
 import {
@@ -39,13 +42,14 @@ import {
 import {
   ADMIN_PASSWORD_MIN, beginTotp, changeUserPassword, claimOwner, countUsers, createUser, createUserMcpToken, deleteUser,
   disableTotp, enableTotp, endOtherUserSessions, listAdminAudit, listUserMcpTokens, listUsers, LlmOverrideDenied,
-  mailboxAddresses, revokeUserMcpToken, totpEnabledFor, verifyUserPassword,
+  mailboxAddresses, readPersonalValues, revokeUserMcpToken, totpEnabledFor, verifyUserPassword,
   MailboxConflictError, MAX_USERS, newAccessToken, newMailboxId, ownerClaimed, passwordProblem, readSettingsFor,
   recordAdminAudit, renameUser, resetUserPassword, savePendingSignIn, sessionUser, setUserDisabled,
   SharedSettingsDenied, startUserSession, takePendingSignIn, updateSettingsFor, userByID, usernameProblem, usernameShapeProblem,
   type MailboxSettings, type PendingSignIn, type SettingsDocument, type User,
 } from './services/settings-store.js';
 import { removeStore, storePathFor, StateStore } from './services/state.js';
+import { HEARTBEAT_KEY } from './services/watcher.js';
 import { releaseLiveHub } from './web-live.js';
 import { forgetLive, forgetSends } from './web-actions.js';
 import { hostPort, requestChannel } from './web-access.js';
@@ -487,10 +491,41 @@ async function testModel(values: Record<string, string>, lang: Language): Promis
 // Routes
 // ---------------------------------------------------------------------------
 
-const PAGES = new Set(['/setup', '/settings', '/users', '/activity', '/insights']);
+const PAGES = new Set(['/setup', '/settings', '/users', '/activity', '/insights', '/sync', '/documents']);
+const allowSyncSearch = rateWindow(10);
+const allowDocumentIndex = rateWindow(60);
+const allowLiveIndex = rateWindow(30);
 
 /** Thrown inside a settings transaction to leave the stored document as it was. */
 class NotSaved extends Error {}
+
+/** What the sync page shows about this user's own state. */
+function syncReport(user: User): SyncReport {
+  const doc = readSettingsFor(user.id);
+  const store = new StateStore(storePathFor(user.id));
+  try {
+    return {
+      lastPollAt: store.getMeta(HEARTBEAT_KEY) ?? '',
+      lookback: doc.values['INITIAL_LOOKBACK_DAYS'] ?? process.env.INITIAL_LOOKBACK_DAYS ?? '3',
+      mailboxes: doc.mailboxes.map((mailbox) => {
+        const safe = safeMailbox(mailbox, authorizedUsernames());
+        return {
+          username: mailbox.username,
+          name: mailbox.name ?? '',
+          folders: (safe['folders'] as string[]) ?? [],
+          readiness: String(safe['readiness'] ?? ''),
+        };
+      }),
+      cursors: store.listCursors(),
+      counts: store.seenCounts(),
+      dead: store.listDeadLetters(20).map((row) => ({
+        subject: row.subject ?? '', reason: row.reason, createdAt: row.createdAt,
+      })),
+    };
+  } finally {
+    store.close();
+  }
+}
 
 /**
  * Serve a settings page or API call, or return undefined for anything else.
@@ -499,7 +534,9 @@ class NotSaved extends Error {}
 export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminContext): Promise<WebResponse | undefined> {
   const path = url.pathname;
   const isPage = PAGES.has(path) && (req.method === 'GET' || req.method === 'HEAD');
-  if (!isPage && !path.startsWith('/api/admin/')) return undefined;
+  const isSyncSearch = path === '/api/sync/search';
+  const isDocuments = path === '/api/documents' || path.startsWith('/api/documents/');
+  if (!isPage && !path.startsWith('/api/admin/') && !isSyncSearch && !isDocuments) return undefined;
   const lang = ctx.lang;
   const zh = lang === 'zh-CN';
 
@@ -522,6 +559,12 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
       if (ctx.user.role !== 'owner') return redirect('/settings');
       const users = listUsers().map((user) => ({ ...user, mailboxCount: mailboxAddresses(user.id).length }));
       return htmlPage(renderUsersPage(lang, ctx.nonce, ctx.version, users, MAX_USERS, ctx.user.id), ctx.nonce, ctx.theme, ctx.palette);
+    }
+    if (path === '/sync') {
+      return htmlPage(renderSyncPage(lang, ctx.nonce, ctx.version, syncReport(ctx.user)), ctx.nonce, ctx.theme, ctx.palette);
+    }
+    if (path === '/documents') {
+      return htmlPage(renderDocumentsPage(lang, ctx.nonce, ctx.version, ctx.user), ctx.nonce, ctx.theme, ctx.palette);
     }
     const doc = readSettingsFor(ctx.user.id);
     if (path === '/settings' && !doc.setupCompletedAt) return redirect('/setup');
@@ -554,6 +597,155 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   }
 
   if (!ctx.user) return fail(401, 'admin_required', zh ? '请先登录。' : 'Sign in first.');
+
+  if (path === '/api/documents' && req.method === 'GET') {
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const q = url.searchParams.get('q') ?? '';
+      const bills = url.searchParams.get('bills') === '1';
+      return ok({ documents: store.listDocuments({ q, bills, limit: 100 }), pending: store.documentsPending(500) });
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/index' && req.method === 'POST') {
+    if (!allowDocumentIndex(ctx.client)) return fail(429, 'rate_limited', zh ? '索引太频繁，请稍后再试。' : 'Too much indexing; wait a moment.');
+    const body = await readJson(req, 4096);
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      // A password was added: forget the locked rows so they are tried again.
+      if (body?.['retry'] === true) store.clearLockedDocuments();
+      const result = await indexPdfDocuments(ctx.user.id, store, 4);
+      return ok(result);
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/from-live' && req.method === 'POST') {
+    if (!allowLiveIndex(ctx.client)) return fail(429, 'rate_limited', zh ? '索引太频繁，请稍后再试。' : 'Too much indexing; wait a moment.');
+    const body = await readJson(req, 8192);
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      useHandleKey(store);
+      const handle = parseLiveHandle(text(body?.['handle'], 5000));
+      if (!handle) return fail(400, 'bad_handle', zh ? '这个搜索结果已失效，请重新搜索。' : 'That search result is no longer valid; search again.');
+      const mailbox = readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === handle.account);
+      if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
+      let account;
+      try {
+        account = mailboxAccount(mailbox);
+      } catch (error) {
+        return fail(400, 'invalid_mailbox', error instanceof Error ? error.message : String(error));
+      }
+      const lookup = await fetchAttachmentManifestByUid(account, handle.folder, handle.uid, handle.uidValidity);
+      if (!lookup) return fail(404, 'not_found', zh ? '邮箱里找不到这封邮件。' : 'That message is no longer in the mailbox.');
+      const passwords = parsePasswords(readPersonalValues(ctx.user.id)['PDF_PASSWORDS']);
+      const subject = text(body?.['subject'], 300);
+      const sender = text(body?.['from'], 320);
+      const mailDate = text(body?.['date'], 60);
+      // If the exact message is already stored, use its key so the live index
+      // updates that document instead of making a second copy. By place, not
+      // Message-ID: two senders can reuse an ID.
+      const known = store.recordAt(handle.account, handle.folder, handle.uid, handle.uidValidity);
+      const dedupKey = known?.dedupKey ?? `live:${handle.account}:${handle.folder}:${handle.uid}`;
+      let indexed = 0;
+      let failed = 0;
+      const errors: string[] = [];
+      for (const item of lookup.manifest.items) {
+        const name = item.filename ?? `part-${item.partId}.pdf`;
+        if (!item.contentType.toLowerCase().includes('pdf') && !name.toLowerCase().endsWith('.pdf')) continue;
+        if (store.getDocument(dedupKey, item.partId)) continue;
+        const base = {
+          dedupKey, partId: item.partId, name, mime: item.contentType || 'application/pdf',
+          pages: 0, text: '', amount: null as string | null, dueDate: null as string | null,
+          bill: looksLikeBill(name, subject, sender), subject, sender, mailDate,
+          error: null as string | null, indexedAt: new Date().toISOString(),
+        };
+        try {
+          const downloaded = await fetchAttachmentByUid(account, handle.folder, handle.uid, handle.uidValidity, item.partId, {
+            asStored: true, limit: 25 * 1024 * 1024,
+          });
+          if (!downloaded) {
+            store.saveDocument({ ...base, error: 'attachment not found' });
+            failed += 1;
+            continue;
+          }
+          const pdf = await extractPdfText(downloaded.content, passwords);
+          const amount = extractAmount(pdf.text) ?? null;
+          store.saveDocument({
+            ...base, pages: pdf.pages, text: pdf.text, amount,
+            dueDate: extractDueDate(pdf.text) ?? null, bill: base.bill || Boolean(amount),
+          });
+          indexed += 1;
+        } catch (error) {
+          failed += 1;
+          const reason = error instanceof PdfPasswordError ? 'password' : 'unreadable';
+          store.saveDocument({ ...base, error: reason });
+          if (errors.length < 5) errors.push(`${name}: ${reason}`);
+        }
+      }
+      return ok({ indexed, failed, errors });
+    } catch (error) {
+      log.warn(`Live PDF index failed: ${String(error).slice(0, 200)}`);
+      return fail(502, 'index_failed', zh ? '暂时无法读取这封邮件的附件。' : 'The attachments could not be read right now.');
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/documents/text' && req.method === 'GET') {
+    const key = (url.searchParams.get('key') ?? '').slice(0, 5000);
+    const part = (url.searchParams.get('part') ?? '').slice(0, 40);
+    if (!key || !part) return fail(400, 'missing', zh ? '缺少文档标识。' : 'Document identity is missing.');
+    const store = new StateStore(storePathFor(ctx.user.id));
+    try {
+      const text = store.documentText(key, part);
+      if (text === undefined) return fail(404, 'not_found', zh ? '找不到这个文档。' : 'That document is not indexed.');
+      return ok({ text });
+    } finally {
+      store.close();
+    }
+  }
+
+  if (path === '/api/sync/search' && req.method === 'POST') {
+    if (!allowSyncSearch(ctx.client)) return fail(429, 'rate_limited', zh ? '搜索太频繁，请稍后再试。' : 'Too many searches; wait a moment.');
+    const body = await readJson(req, 4096);
+    const address = text(body?.['mailbox'], 320);
+    const query = text(body?.['query'], 200).trim();
+    if (!query) return fail(400, 'no_query', zh ? '请输入主题或发件人。' : 'Type a subject or sender to search for.');
+    const mailbox = readSettingsFor(ctx.user.id).mailboxes.find((m) => m.username === address);
+    if (!mailbox) return fail(404, 'no_mailbox', zh ? '找不到这个邮箱。' : 'That mailbox is not configured.');
+    let account;
+    try {
+      account = mailboxAccount(mailbox);
+    } catch (error) {
+      return fail(400, 'invalid_mailbox', error instanceof Error ? error.message : String(error));
+    }
+    const handleStore = new StateStore(storePathFor(ctx.user.id));
+    try {
+      // Handles are signed with the key stored with this person's mail, so a
+      // restart does not invalidate a result the page is still showing.
+      useHandleKey(handleStore);
+      // Gmail's default live search uses All Mail, so archived and labelled mail is included.
+      // The words go through as typed, the way Gmail's own search box treats them.
+      const page = await searchMailbox(account, { query, limit: 20 });
+      return ok({
+        folders: page.folders,
+        total: page.total,
+        limited: page.limited ?? null,
+        items: page.items.map((item) => ({
+          subject: item.subject, from: item.from, date: item.date, folder: item.folder, handle: item.handle,
+        })),
+      });
+    } catch (error) {
+      log.warn(`Sync search failed for ${address}: ${String(error).slice(0, 200)}`);
+      return fail(502, 'search_failed', zh ? '邮箱暂时无法搜索。' : 'The mailbox could not be searched right now.');
+    } finally {
+      handleStore.close();
+    }
+  }
 
   if (path === '/api/admin/state' && req.method === 'GET') {
     return ok(statePayload(req, readSettingsFor(ctx.user.id), ctx.user));
@@ -610,6 +802,11 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
         return fail(400, 'invalid', zh ? '有设置需要修改。' : 'Some settings need attention.', { errors });
       }
       const applied = apply(doc, 'settings were saved');
+      const submitted = body['values'];
+      if (submitted && typeof submitted === 'object' && !Array.isArray(submitted) && 'PDF_PASSWORDS' in submitted) {
+        const documents = new StateStore(storePathFor(ctx.user.id));
+        try { documents.clearLockedDocuments(); } finally { documents.close(); }
+      }
       recordAdminAudit({ actorID: ctx.user.id, actor: ctx.user.username, action: 'settings.save', success: true });
       return ok({ saved: true, applied, state: statePayload(req, doc, ctx.user) });
     }

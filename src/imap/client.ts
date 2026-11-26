@@ -1403,6 +1403,71 @@ export async function fetchAttachmentByMessageId(
   }, { timeoutMs: 90_000 });
 }
 
+/**
+ * Read one message's attachment manifest by its exact place.
+ *
+ * The Message-ID lookup is right for a message the poller has a record of, but
+ * two senders can reuse an ID. A live search handle carries the folder and UID
+ * the server just showed, so an archived attachment is read from that message
+ * and no other.
+ */
+export async function fetchAttachmentManifestByUid(
+  account: Account, folder: string, uid: number, uidValidity: string,
+): Promise<AttachmentManifestLookup | undefined> {
+  if (!folder || !Number.isInteger(uid) || uid <= 0) return undefined;
+  return withSession(account, async (client) => {
+    const lock = await client.getMailboxLock(folder, { readOnly: true });
+    try {
+      if (uidValidity && selectedValidity(client) !== uidValidity) return undefined;
+      const raw = await client.fetchOne(String(uid), { uid: true, bodyStructure: true }, { uid: true });
+      if (!raw || Number(raw.uid) !== uid) return undefined;
+      return { folder, manifest: extractAttachmentManifest(raw.bodyStructure) };
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+/** Download one attachment from an exact folder and UID, as stored. */
+export async function fetchAttachmentByUid(
+  account: Account, folder: string, uid: number, uidValidity: string, partId: string,
+  options: { limit?: number; asStored?: boolean } = {},
+): Promise<DownloadedAttachment | undefined> {
+  if (!/^\d+(?:\.\d+)*$/.test(partId)) throw new AttachmentNotFoundError(partId);
+  const { limit, asStored = false } = options;
+  const maxBytes = limit !== undefined && Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : attachmentMaxBytes();
+  if (!folder || !Number.isInteger(uid) || uid <= 0) return undefined;
+  return withSession(account, async (client) => {
+    const lock = await client.getMailboxLock(folder, { readOnly: true });
+    try {
+      if (uidValidity && selectedValidity(client) !== uidValidity) return undefined;
+      const raw = await client.fetchOne(String(uid), { uid: true, bodyStructure: true }, { uid: true });
+      if (!raw || Number(raw.uid) !== uid) return undefined;
+      const metadata = extractAttachmentManifest(raw.bodyStructure).items.find((part) => part.partId === partId);
+      if (!metadata) throw new AttachmentNotFoundError(partId);
+      const download = await client.download(uid, partId, {
+        uid: true, maxBytes: maxBytes + 1, ...(asStored ? { decodeText: false } : {}),
+      });
+      if (!download.content) throw new AttachmentNotFoundError(partId);
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of download.content) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += buffer.length;
+        if (size > maxBytes) {
+          download.content.destroy();
+          throw new AttachmentTooLargeError(maxBytes);
+        }
+        chunks.push(buffer);
+      }
+      const charset = asStored && typeof download.meta?.charset === 'string' ? download.meta.charset : '';
+      return { metadata, content: Buffer.concat(chunks, size), ...(charset ? { charset } : {}) };
+    } finally {
+      lock.release();
+    }
+  }, { timeoutMs: 90_000 });
+}
+
 /** What each flag action does, and the word its refusal is reported with. */
 const FLAG_CHANGES = {
   mark_read: { flag: '\\Seen', add: true, name: 'mark-read' },
