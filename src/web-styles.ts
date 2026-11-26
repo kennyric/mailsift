@@ -20,33 +20,167 @@
  */
 
 /**
- * Dark tokens, in the spirit of Gmail's and Apple Mail's dark modes: a
- * charcoal page rather than pure black, cards one clear step above it, visible
- * hairlines, a warmer text ramp and a brighter indigo that still reads as the
- * interactive colour. Pure black made every surface collapse into the page.
+ * The colour packs. Each one names the same set of tokens in both modes, so a
+ * single palette can be chosen without changing the light/dark switch. The
+ * accent is always distinct from the status colours: green still means done,
+ * amber still means warning, and red still means critical.
  */
-const DARK_PALETTE = '--bg:#101216;--surface:#191c22;--fill:#22262e;--fill-2:#2a2f38;--line:#2b313b;--line-strong:#434b58;'
-  + '--text:#eef1f6;--text-2:#c0c7d3;--muted:#909aa9;--accent:#8aa9ff;--on-accent:#0b0e14;--accent-tint:#25314b;--selected:#202633;'
-  + '--critical:#f07171;--critical-text:#ff9a9a;--critical-tint:rgba(240,113,113,.16);--warning:#f0aa45;--warning-text:#ffc16a;--warning-tint:rgba(240,170,69,.16);'
-  + '--backdrop:rgba(4,6,9,.62);--shadow-sheet:0 -8px 32px rgba(0,0,0,.55);--shadow-pop:0 10px 28px rgba(0,0,0,.5),0 0 0 1px var(--line);'
-  + '--card-shadow:0 1px 0 rgba(255,255,255,.03),0 2px 8px rgba(0,0,0,.22);'
-  + '--seg-on:#3b4452;--switch-off:#737e8d;--ok:#5fd39a;--ok-tint:#193528;color-scheme:dark';
-export const LIGHT_BAR = '#f4f5f7';
-/** The dark palette's --bg, used for the installed app's splash and status bar. */
-export const DARK_BAR = '#101216';
+export const PALETTE_NAMES = ['classic', 'sage', 'sand', 'plum'] as const;
+export type PaletteName = (typeof PALETTE_NAMES)[number];
+export type AppearanceMode = 'light' | 'dark';
+
+export interface PaletteColors {
+  'bg': string;
+  'surface': string;
+  'fill': string;
+  'fill-2': string;
+  'line': string;
+  'line-strong': string;
+  'text': string;
+  'text-2': string;
+  'muted': string;
+  'accent': string;
+  'on-accent': string;
+  'accent-tint': string;
+  'selected': string;
+}
+
+interface SharedColors {
+  'critical': string;
+  'critical-text': string;
+  'critical-tint': string;
+  'warning': string;
+  'warning-text': string;
+  'warning-tint': string;
+  'backdrop': string;
+  'shadow-sheet': string;
+  'shadow-pop': string;
+  'card-shadow': string;
+  'seg-on': string;
+  'switch-off': string;
+  'ok': string;
+  'ok-tint': string;
+}
+
+export interface PaletteEntry {
+  light: PaletteColors;
+  dark: PaletteColors;
+}
+
+const SHARED_LIGHT: SharedColors = {
+  critical: '#d64545',
+  'critical-text': '#b03030',
+  'critical-tint': '#fdecec',
+  warning: '#b86b04',
+  'warning-text': '#8c5204',
+  'warning-tint': '#fef3e2',
+  backdrop: 'rgba(21,23,27,.32)',
+  'shadow-sheet': '0 -8px 32px rgba(21,23,27,.12)',
+  'shadow-pop': '0 8px 24px rgba(21,23,27,.10)',
+  'card-shadow': '0 1px 2px rgba(21,23,27,.05)',
+  'seg-on': '#fff',
+  'switch-off': '#868e9b',
+  ok: '#1c7a4b',
+  'ok-tint': '#dcefe4',
+};
+
+const SHARED_DARK: SharedColors = {
+  critical: '#f07171',
+  'critical-text': '#ff9a9a',
+  'critical-tint': 'rgba(240,113,113,.16)',
+  warning: '#f0aa45',
+  'warning-text': '#ffc16a',
+  'warning-tint': 'rgba(240,170,69,.16)',
+  backdrop: 'rgba(4,6,9,.62)',
+  'shadow-sheet': '0 -8px 32px rgba(0,0,0,.55)',
+  'shadow-pop': '0 10px 28px rgba(0,0,0,.5),0 0 0 1px var(--line)',
+  'card-shadow': '0 1px 0 rgba(255,255,255,.03),0 2px 8px rgba(0,0,0,.22)',
+  'seg-on': '#3b4452',
+  'switch-off': '#737e8d',
+  ok: '#5fd39a',
+  'ok-tint': '#193528',
+};
+
+export const PALETTES: Record<PaletteName, PaletteEntry> = {
+  classic: {
+    light: {
+      bg: '#f4f5f7', surface: '#fff', fill: '#eceef2', 'fill-2': '#e3e5ea',
+      line: '#e2e4e9', 'line-strong': '#c3c8d1', text: '#15171b', 'text-2': '#4a505c',
+      muted: '#5a616c', accent: '#3358d4', 'on-accent': '#fff', 'accent-tint': '#e1e5f4', selected: '#fff',
+    },
+    dark: {
+      bg: '#101216', surface: '#191c22', fill: '#22262e', 'fill-2': '#2a2f38',
+      line: '#2b313b', 'line-strong': '#434b58', text: '#eef1f6', 'text-2': '#c0c7d3',
+      muted: '#909aa9', accent: '#8aa9ff', 'on-accent': '#0b0e14', 'accent-tint': '#25314b', selected: '#202633',
+    },
+  },
+  sage: {
+    light: {
+      bg: '#f3f6f2', surface: '#fff', fill: '#e9efe6', 'fill-2': '#dfe7da',
+      line: '#dfe6da', 'line-strong': '#bfcbb7', text: '#162019', 'text-2': '#465148',
+      muted: '#5a665d', accent: '#2b6b6b', 'on-accent': '#fff', 'accent-tint': '#dfeeea', selected: '#fff',
+    },
+    dark: {
+      bg: '#0f1512', surface: '#18201b', fill: '#202a24', 'fill-2': '#29362e',
+      line: '#2b3831', 'line-strong': '#445849', text: '#edf3ee', 'text-2': '#bdc9c0',
+      muted: '#8b9b91', accent: '#79c9c0', 'on-accent': '#06110f', 'accent-tint': '#223934', selected: '#1d2922',
+    },
+  },
+  sand: {
+    light: {
+      bg: '#f7f3ee', surface: '#fffdfa', fill: '#f0e9e1', 'fill-2': '#e8dfd5',
+      line: '#e6ddd2', 'line-strong': '#cdbfae', text: '#1f1915', 'text-2': '#574b42',
+      muted: '#6b5d52', accent: '#415d8a', 'on-accent': '#fff', 'accent-tint': '#e6ebf4', selected: '#fffdfa',
+    },
+    dark: {
+      bg: '#171210', surface: '#211a17', fill: '#2b221e', 'fill-2': '#352a24',
+      line: '#3a2e28', 'line-strong': '#57453c', text: '#f6ede6', 'text-2': '#d0c2b8',
+      muted: '#a29083', accent: '#a8c2ef', 'on-accent': '#12100d', 'accent-tint': '#2b3040', selected: '#2a211c',
+    },
+  },
+  plum: {
+    light: {
+      bg: '#f6f2f7', surface: '#fff', fill: '#ede7f1', 'fill-2': '#e4dbe9',
+      line: '#e2d9e8', 'line-strong': '#c8b8d0', text: '#1d1721', 'text-2': '#53475a',
+      muted: '#675a6e', accent: '#7a3f86', 'on-accent': '#fff', 'accent-tint': '#f1e5f4', selected: '#fff',
+    },
+    dark: {
+      bg: '#151117', surface: '#1e1821', fill: '#28202c', 'fill-2': '#322838',
+      line: '#362b3b', 'line-strong': '#51405a', text: '#f3edf5', 'text-2': '#cbbfd1',
+      muted: '#9b8ba3', accent: '#d9a0e2', 'on-accent': '#180c1c', 'accent-tint': '#37263d', selected: '#251d29',
+    },
+  },
+};
+
+const tokenCss = (tokens: object): string =>
+  Object.entries(tokens).map(([name, value]) => `--${name}:${value};`).join('');
+
+const appearanceCss = (palette: PaletteName, mode: AppearanceMode): string =>
+  `color-scheme:${mode};${tokenCss(PALETTES[palette][mode])}${tokenCss(mode === 'light' ? SHARED_LIGHT : SHARED_DARK)}`;
+
+const paletteRules = PALETTE_NAMES.filter((name) => name !== 'classic').map((name) =>
+  `:root[data-palette=${name}]{${appearanceCss(name, 'light')}}`
+  + `:root[data-palette=${name}][data-theme=dark]{${appearanceCss(name, 'dark')}}`,
+).join('\n');
+
+export const LIGHT_BAR = PALETTES.classic.light.bg;
+/** The classic dark palette's --bg, used for the installed app's splash and status bar. */
+export const DARK_BAR = PALETTES.classic.dark.bg;
+
+/** The browser chrome colour for one palette in one mode. */
+export function barColor(palette: string, mode: AppearanceMode): string {
+  const name = (PALETTE_NAMES as readonly string[]).includes(palette) ? palette as PaletteName : 'classic';
+  return PALETTES[name][mode].bg;
+}
 
 const SANS = '-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",Roboto,"Noto Sans CJK SC","Microsoft YaHei",sans-serif';
 const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace';
 
 export function styles(): string {
   return `
-:root{color-scheme:light;--bg:#f4f5f7;--surface:#fff;--fill:#eceef2;--fill-2:#e3e5ea;--line:#e2e4e9;--line-strong:#c3c8d1;
---text:#15171b;--text-2:#4a505c;--muted:#5a616c;--accent:#3358d4;--on-accent:#fff;--accent-tint:#e1e5f4;--selected:#fff;
---critical:#d64545;--critical-text:#b03030;--critical-tint:#fdecec;--warning:#b86b04;--warning-text:#8c5204;--warning-tint:#fef3e2;
---backdrop:rgba(21,23,27,.32);--shadow-sheet:0 -8px 32px rgba(21,23,27,.12);--shadow-pop:0 8px 24px rgba(21,23,27,.10);
---card-shadow:0 1px 2px rgba(21,23,27,.05);
---seg-on:#fff;--switch-off:#868e9b;--ok:#1c7a4b;--ok-tint:#dcefe4}
-:root[data-theme=dark]{` + DARK_PALETTE + `}
+:root{${appearanceCss('classic', 'light')}}
+:root[data-theme=dark]{${appearanceCss('classic', 'dark')}}
+${paletteRules}
 *{box-sizing:border-box}
 html{touch-action:manipulation;background:var(--bg)}
 button,input,select,textarea,a{-webkit-tap-highlight-color:transparent}
@@ -81,6 +215,21 @@ body::after{content:"";position:fixed;inset:auto 0 0;height:env(safe-area-inset-
 .icon-btn svg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .icon-btn .icon{vertical-align:0}
 .theme-icon{transition:transform .45s cubic-bezier(.2,.7,.2,1)}:root[data-theme=dark] .theme-icon{transform:rotate(180deg)}
+.appearance-note{margin:12px 0 0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.appearance-label{margin:0 0 7px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.appearance-label.gap{margin-top:14px}
+.appearance-seg{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;border:1px solid var(--line);border-radius:10px;background:var(--fill)}
+.appearance-seg button{min-height:34px;border:0;border-radius:7px;background:transparent;color:var(--text-2);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.appearance-seg button.on{background:var(--surface);color:var(--text);box-shadow:var(--card-shadow)}
+.appearance-palettes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.appearance-palette{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-height:72px;padding:10px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.appearance-palette.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.appearance-swatches{display:flex}
+.appearance-swatch{width:17px;height:17px;border-radius:50%;border:2px solid var(--surface);margin-left:-5px;box-shadow:0 0 0 1px var(--line)}
+.appearance-swatch:first-child{margin-left:0}
+.appearance-palette-name{font-size:12.5px;font-weight:600}
+.appearance-check{position:absolute;top:8px;right:9px;display:none;color:var(--accent);font-size:12px;font-weight:700}
+.appearance-palette.on .appearance-check{display:block}
 /* On: a shade darker, nothing more. A dot means something new to look at, and a setting that is on is not that. */
 #bell{position:relative}#bell.on{color:var(--text)}
 .icon-btn:disabled{opacity:.3;cursor:default}.icon-btn.small{min-width:32px;min-height:32px;margin:-6px -6px -6px 0}.icon-btn.small svg,.icon-btn.small .icon{width:16px;height:16px}

@@ -35,12 +35,12 @@ import { handleShaped } from './imap/mailbox.js';
 import { routeMailbox } from './web-mailbox.js';
 import { clientScript, LANGUAGE_COOKIE, storeLanguageScript } from './web-client.js';
 import {
-  credentialMark, crossSite, embedded, json, localHost, presentedToken, rateWindow, readBody, readCookie,
+  credentialMark, crossSite, embedded, json, localHost, paletteOf, presentedToken, rateWindow, readBody, readCookie,
   SESSION_COOKIE, sessionOf, themeOf, timedOut, tokenMatches, within, type Session, type WebResponse,
 } from './web-http.js';
 import { appleTouch180, favicon64, icon192, icon512, maskable512 } from './web-icons.js';
 import { liveHubFor } from './web-live.js';
-import { DARK_BAR, LIGHT_BAR, styles } from './web-styles.js';
+import { barColor, LIGHT_BAR, styles } from './web-styles.js';
 import { isLanguage, LANGUAGES, t, type Language, type StringKey } from './web-strings.js';
 import { appPolicy, framePolicy, MAIL_FRAME, SERVICE_WORKER, SHELL_HEADER } from './web-worker.js';
 import { doneListDays, MAX_CONTACTS, StateStore, storePathFor, type MailRow, type SentRow } from './services/state.js';
@@ -806,6 +806,10 @@ function themeBoot(): string {
     + "document.documentElement.dataset.theme=c;"
     // The manifest is served per request; the cookie tells it which bar to bake.
     + "document.cookie='theme='+c+';path=/;max-age=31536000;SameSite=Lax';"
+    + "var p=localStorage.getItem('palette');"
+    + "if(!/^(classic|sage|sand|plum)$/.test(p))p='classic';"
+    + "document.documentElement.dataset.palette=p;"
+    + "document.cookie='palette='+p+';path=/;max-age=31536000;SameSite=Lax';"
     + "var l=localStorage.getItem('layout');"
     + "if(l!=='cards'&&l!=='digest'&&l!=='crisp'&&l!=='default')l='cards';"
     + "document.documentElement.dataset.layout=l;"
@@ -903,7 +907,7 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
           ${iconButton('compose-open', 'compose', 'compose.new', 'aria-haspopup="dialog" aria-controls="compose"')}
           ${iconButton('bell', 'bell', 'notify.title', 'aria-haspopup="dialog" aria-controls="notify-sheet" aria-expanded="false"')}
           <button id="lang" type="button" class="word-btn" aria-label="${s('lang.label')}">${s('lang.face')}</button>
-          <button id="theme" type="button" class="icon-btn" aria-label="${s('theme.title')}"><svg class="theme-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none"/></svg></button>
+          <button id="theme" type="button" class="icon-btn" aria-label="${s('theme.title')}" title="${s('theme.title')}" data-i18n-label="theme.title" data-i18n-title="theme.title" aria-haspopup="dialog" aria-controls="appearance-sheet" aria-expanded="false"><svg class="theme-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none"/></svg></button>
         </div>
       </div>
     </header>
@@ -974,6 +978,10 @@ export function renderApp(lang: Language, canRefresh = false, nonce = '', settin
     <dialog id="notify-sheet" class="sheet bare" aria-labelledby="notify-title" tabindex="-1">
       ${sheetHead('notify-title', 'notify.title', 'notify-done')}
       <div class="sheet-body"></div>
+    </dialog>
+    <dialog id="appearance-sheet" class="sheet" aria-labelledby="appearance-title" tabindex="-1">
+      ${sheetHead('appearance-title', 'theme.title', 'appearance-done')}
+      <div class="sheet-body" id="appearance-body"></div>
     </dialog>
     <dialog id="snooze-sheet" class="sheet bare" aria-labelledby="snooze-title" tabindex="-1">
       ${sheetHead('snooze-title', 'snooze.title', 'snooze-done')}
@@ -1085,13 +1093,14 @@ function page(lang: Language, title: string, body: string, nonce = '', bodyAttrs
  *
  * `standalone` so it opens without browser chrome, and the theme colour is the
  * app's own header rather than the brand blue, so the status bar continues the
- * page instead of sitting on top of it. The light/dark choice arrives in the
- * theme cookie, because the browser bakes these colours into the installed app
- * (the splash and task switcher) at install time. Worded per language, because
+ * page instead of sitting on top of it. The light/dark and palette choices
+ * arrive in cookies, because the browser bakes these colours into the
+ * installed app (the splash and task switcher) at install time. Worded per
+ * language, because
  * the shortcut names show up in the launcher.
  */
-function manifest(lang: Language, dark = false): string {
-  const bar = dark ? DARK_BAR : LIGHT_BAR;
+function manifest(lang: Language, theme: 'light' | 'dark' = 'light', palette = 'classic'): string {
+  const bar = barColor(palette, theme);
   return JSON.stringify({
     id: '/',
     name: 'mailsift',
@@ -1241,6 +1250,7 @@ export function webRateLimited(req: IncomingMessage, path: string): WebResponse 
   }
   const lang = pickLanguage(req);
   const theme = themeOf(req);
+  const palette = paletteOf(req);
   const words = (key: StringKey): string => escapeHtml(t(lang, key));
   const body = page(lang, 'mailsift', `
     <div class="login">
@@ -1249,8 +1259,8 @@ export function webRateLimited(req: IncomingMessage, path: string): WebResponse 
       <p class="muted" role="alert">${words('error.rate_limited')}</p>
       <p><a href="">${words('network.retry')}</a></p>
     </div>`)
-    .replace(`<meta name="theme-color" content="${LIGHT_BAR}">`, `<meta name="theme-color" content="${theme === 'dark' ? DARK_BAR : LIGHT_BAR}">`)
-    .replace(`<html lang="${lang}">`, `<html lang="${lang}" data-theme="${theme}">`);
+    .replace(`<meta name="theme-color" content="${LIGHT_BAR}">`, `<meta name="theme-color" content="${barColor(palette, theme)}">`)
+    .replace(`<html lang="${lang}">`, `<html lang="${lang}" data-theme="${theme}" data-palette="${palette}">`);
   return {
     status: 429, contentType: 'text/html; charset=utf-8', body,
     headers: { ...headers, 'content-security-policy': appPolicy(randomBytes(16).toString('base64')), 'x-frame-options': 'DENY' },
@@ -1287,16 +1297,17 @@ async function route(
   const writeToken = options.writeToken ?? '';
   const lang = pickLanguage(req);
   const theme = themeOf(req);
+  const palette = paletteOf(req);
   // One nonce per response: only the script that carries it runs.
   const nonce = randomBytes(16).toString('base64');
   // Android Chrome paints its navigation bar from the initial theme-color,
   // not from a value a script changes after parsing. Serve the saved theme in
   // the HTML as well as letting themeBoot keep it in step afterwards.
   const paintTheme = (body: string): string => {
-    const bar = theme === 'dark' ? DARK_BAR : LIGHT_BAR;
+    const bar = barColor(palette, theme);
     return body
       .replace(`<meta name="theme-color" content="${LIGHT_BAR}">`, `<meta name="theme-color" content="${bar}">`)
-      .replace(`<html lang="${lang}">`, `<html lang="${lang}" data-theme="${theme}">`);
+      .replace(`<html lang="${lang}">`, `<html lang="${lang}" data-theme="${theme}" data-palette="${palette}">`);
   };
   const html = (status: number, body: string, shell = false): WebResponse => ({
     status, body: paintTheme(body), contentType: 'text/html; charset=utf-8',
@@ -1316,7 +1327,7 @@ async function route(
   if (url.pathname === '/manifest.webmanifest' && req.method === 'GET') {
     return {
       status: 200,
-      body: manifest(pickLanguage(req), readCookie(req.headers.cookie, 'theme') === 'dark'),
+      body: manifest(pickLanguage(req), themeOf(req), paletteOf(req)),
       contentType: 'application/manifest+json',
       // It differs by language and theme, so no shared cache may hand one reader's copy to another.
       cacheControl: 'private, max-age=3600', headers: { vary: 'Accept-Language, Cookie' },
@@ -1443,7 +1454,7 @@ async function route(
 
   if (options.adminAuth) {
     const settings = await routeAdmin(req, url, {
-      lang, nonce, client, version: webVersion(), theme,
+      lang, nonce, client, version: webVersion(), theme, palette,
       ...(signedIn ? { user: signedIn.user, session: signedIn.token } : {}),
     });
     if (settings) return settings;

@@ -23,7 +23,7 @@ Compose publishes the port on the server's loopback address only, and mailsift t
 - [Keyboard and the command palette](#keyboard-and-the-command-palette)
 - [Mailboxes that cannot be read](#mailboxes-that-cannot-be-read)
 - [Refreshing](#refreshing)
-- [Theme and language](#theme-and-language)
+- [Theme, palette and language](#theme-palette-and-language)
 - [Installing, and opening offline](#installing-and-opening-offline)
 - [How the page is protected](#how-the-page-is-protected)
 - [Behind a reverse proxy](#behind-a-reverse-proxy)
@@ -262,9 +262,9 @@ The page has no pull-to-refresh of its own: in the installed app, scrolling back
 
 The button appears only when the page is served by the long-running service; the standalone MCP server has no poller to trigger. Its status line still says when the mailboxes were last checked, because it reads the same database.
 
-## Theme and language
+## Theme, palette and language
 
-The header carries a light/dark switch. The page starts light and does not follow the system setting. The choice is stored in the browser and applied before the body renders, so it never flashes the other theme.
+The header's appearance control opens a light/dark switch and four colour packs: **Classic** (indigo), **Sage** (teal on sage-tinted surfaces), **Sand** (denim on warm paper) and **Plum** (plum on lilac). Each pack names its own tokens in both modes, while green, amber and red keep their meanings of done, warning and critical. The page starts light and Classic, and does not follow the system setting. Both choices are stored in the browser and applied before the body renders, so neither flashes the other theme or palette. The palette cookie also paints the installed app's launch screen and status bar.
 
 Next to it is a language switch between English and Simplified Chinese. The page follows the browser's language until the switch is used; that choice is kept in a cookie, so the server renders the page, and the sign-in form before it, in that language from the first paint. Only the page's own words change. Subjects, summaries and reasons are shown as stored, in the language `LLM_OUTPUT_LANGUAGE` told the model to write.
 

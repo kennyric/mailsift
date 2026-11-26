@@ -459,7 +459,7 @@ function commands() {
   add('actions', 'i-check', t('cmd.copyCode'), copyNewestCode);
   add('actions', 'i-bell', t('notify.title'), () => bell.click());
   add('actions', 'i-inbox', t('mailboxes.title'), openHealth);
-  add('actions', 'i-sparkle', t(readTheme() === 'dark' ? 'theme.toLight' : 'theme.toDark'), () => $('#theme').click());
+  add('actions', 'i-sparkle', t('theme.title'), () => $('#theme').click());
   add('actions', 'i-chevron', t('lang.label'), () => $('#lang').click());
   add('actions', 'i-more', t('keys.title'), openKeys);
   if (session.auth) add('actions', 'i-x', t('session.signout'), signOut);
@@ -785,6 +785,7 @@ setInterval(renderStatus, 30000);
 readUrl();
 markSegs();
 applyTheme(readTheme());
+applyPalette(readPalette());
 if (connectionProblem) setNetworkIssue(true);
 // What was here last time is drawn at once; the server's answer replaces it.
 restoreSnapshot();

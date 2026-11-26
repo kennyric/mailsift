@@ -553,6 +553,11 @@ function dict(lang: Language): Dict {
 /** The theme the mail view stored, applied before first paint. */
 const THEME_BOOT = "(function(){try{var c=localStorage.getItem('theme');"
   + "document.documentElement.dataset.theme=c==='dark'?'dark':'light';"
+  + "document.cookie='theme='+(c==='dark'?'dark':'light')+';path=/;max-age=31536000;SameSite=Lax';"
+  + "var p=localStorage.getItem('palette');"
+  + "if(!/^(classic|sage|sand|plum)$/.test(p))p='classic';"
+  + "document.documentElement.dataset.palette=p;"
+  + "document.cookie='palette='+p+';path=/;max-age=31536000;SameSite=Lax';"
   + "var d=c==='dark';"
   + "var m=document.querySelector('meta[name=theme-color]');"
   + "var b=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();"

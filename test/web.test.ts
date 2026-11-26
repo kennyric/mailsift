@@ -10,7 +10,7 @@ import { SERVICE_WORKER } from '../src/web-worker.js';
 import { buildLink } from '../src/links.js';
 import { STRINGS, type StringKey } from '../src/web-strings.js';
 import { clientScript } from '../src/web-client.js';
-import { styles } from '../src/web-styles.js';
+import { PALETTES, PALETTE_NAMES, styles } from '../src/web-styles.js';
 import { webcrypto } from 'node:crypto';
 import { letterText } from '../src/web-actions.js';
 import { attachmentFilename } from '../src/smtp.js';
@@ -528,6 +528,17 @@ describe('installable app', () => {
     expect(answer.headers?.['vary']).toContain('Accept-Language');
   });
 
+  it('paints the launch screen from the saved palette', async () => {
+    const store = seeded();
+    const answer = await routeWeb(
+      request({ url: '/manifest.webmanifest', headers: { cookie: 'theme=dark; palette=plum' } }),
+      url('/manifest.webmanifest'), '', store,
+    );
+    const m = JSON.parse(String(answer.body)) as { theme_color: string; background_color: string };
+    expect(m.theme_color).toBe('#151117');
+    expect(m.background_color).toBe('#151117');
+  });
+
   it('offers to install on a phone only, leaving a desk to the browser', async () => {
     const page = String((await routeWeb(request(), url('/'), '', seeded())).body);
     // The header carries no install word; the phone's offer is a line in the list.
@@ -616,30 +627,47 @@ describe('installable app', () => {
   });
 });
 
-describe('colour theme', () => {
-  const shell = async (): Promise<string> => String((await routeWeb(request(), url('/'), '', seeded())).body);
+describe('colour theme and palette', () => {
+  const shell = async (headers: Record<string, string> = {}): Promise<string> =>
+    String((await routeWeb(request({ headers }), url('/'), '', seeded())).body);
 
-  it('offers a direct light and dark switch', async () => {
+  it('offers light, dark and four colour packs from an appearance panel', async () => {
     const page = await shell();
     expect(page).toContain('id="theme"');
+    expect(page).toContain('id="appearance-sheet"');
     expect(page).toContain("const THEMES = ['light', 'dark']");
+    expect(page).toContain("const PALETTE_CHOICES = ['classic', 'sage', 'sand', 'plum']");
+    expect(page).toContain("data-palette=sage");
+    expect(page).toContain("data-palette=sand][data-theme=dark]");
     expect(page).not.toContain('theme.auto');
   });
 
   it('uses the selected palette without following the system', async () => {
     const page = await shell();
-    expect(page).toContain(':root[data-theme=dark]{--bg:#101216');
+    expect(page).toContain(':root[data-theme=dark]{color-scheme:dark;--bg:#101216');
+    expect(page).toContain(':root[data-palette=sage]{color-scheme:light;--bg:#f3f6f2');
+    expect(page).toContain(':root[data-palette=plum][data-theme=dark]{color-scheme:dark;--bg:#151117');
     expect(page).toContain('--accent:#3358d4');
     expect(page).not.toContain('prefers-color-scheme');
   });
 
-  it('applies the choice before the body renders', async () => {
+  it('applies the theme and palette before the body renders', async () => {
     // Reading it afterwards would show the other theme for a frame, which is
     // the flash a manual switch exists to avoid.
     const page = await shell();
-    const boot = page.indexOf("localStorage.getItem('theme')");
-    expect(boot).toBeGreaterThan(-1);
-    expect(boot).toBeLessThan(page.indexOf('<body>'));
+    const themeBoot = page.indexOf("localStorage.getItem('theme')");
+    const paletteBoot = page.indexOf("localStorage.getItem('palette')");
+    const body = page.indexOf('<body>');
+    expect(themeBoot).toBeGreaterThan(-1);
+    expect(paletteBoot).toBeGreaterThan(-1);
+    expect(themeBoot).toBeLessThan(body);
+    expect(paletteBoot).toBeLessThan(body);
+  });
+
+  it('serves a saved palette with the matching chrome and page attributes', async () => {
+    const page = await shell({ cookie: 'theme=dark; palette=plum' });
+    expect(page).toContain('data-theme="dark" data-palette="plum"');
+    expect(page).toContain('<meta name="theme-color" content="#151117">');
   });
 
   it('moves the status bar colour with the choice, not just the page', async () => {
@@ -650,13 +678,42 @@ describe('colour theme', () => {
     expect(page).toContain("if (meta && bg) meta.setAttribute('content', bg)");
   });
 
-  it('defaults to light when there is no saved theme', async () => {
-    expect(await shell()).toContain("if(c!=='dark'&&c!=='light')c='light'");
+  it('defaults to light and Classic when there is no saved choice', async () => {
+    const page = await shell();
+    expect(page).toContain("if(c!=='dark'&&c!=='light')c='light'");
+    expect(page).toContain("if(!/^(classic|sage|sand|plum)$/.test(p))p='classic'");
   });
 
   it('survives a browser that refuses storage', async () => {
     const page = await shell();
     expect(page).toContain("catch (e) { return 'light'; }");
+    expect(page).toContain("catch (e) { return 'classic'; }");
+  });
+
+  it('keeps text and accents readable in every palette and mode', () => {
+    const channel = (hex: string): number => {
+      const value = parseInt(hex, 16) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = (hex: string): number => {
+      const c = hex.replace('#', '');
+      const full = c.length === 3 ? c.split('').map((digit) => digit + digit).join('') : c;
+      return 0.2126 * channel(full.slice(0, 2)) + 0.7152 * channel(full.slice(2, 4)) + 0.0722 * channel(full.slice(4, 6));
+    };
+    const ratio = (a: string, b: string): number => {
+      const one = luminance(a), two = luminance(b);
+      return (Math.max(one, two) + 0.05) / (Math.min(one, two) + 0.05);
+    };
+    for (const name of PALETTE_NAMES) {
+      for (const mode of ['light', 'dark'] as const) {
+        const c = PALETTES[name][mode];
+        expect(ratio(c.text, c.bg), `${name}/${mode} text`).toBeGreaterThanOrEqual(4.5);
+        expect(ratio(c['text-2'], c.bg), `${name}/${mode} text-2`).toBeGreaterThanOrEqual(4.5);
+        expect(ratio(c.muted, c.bg), `${name}/${mode} muted`).toBeGreaterThanOrEqual(4.5);
+        expect(ratio(c.accent, c.bg), `${name}/${mode} accent`).toBeGreaterThanOrEqual(4.5);
+        expect(ratio(c['on-accent'], c.accent), `${name}/${mode} on-accent`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 });
 

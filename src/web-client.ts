@@ -60,6 +60,7 @@ const list = $('#list'), filters = $('#filters'), lane = $('#lane'), header = $(
 const sheet = $('#sheet'), pane = $('#pane'), filterSheet = $('#filter-sheet'), installHelp = $('#install-help');
 const healthSheet = $('#health-sheet'), healthLine = $('#health');
 const notifySheet = $('#notify-sheet'), keysSheet = $('#keys-sheet'), menuSheet = $('#menu-sheet'), composeSheet = $('#compose');
+const appearanceSheet = $('#appearance-sheet'), appearanceBody = $('#appearance-body');
 const snoozeSheet = $('#snooze-sheet'), folderSheet = $('#folder-sheet'), bulkSheet = $('#bulk-sheet');
 const queue = $('#queue'), answerBox = $('#answer');
 // The separators every line of supporting text is joined with.
@@ -441,7 +442,7 @@ function enableDrag(dialog) {
   head.addEventListener('pointerup', end);
   head.addEventListener('pointercancel', end);
 }
-for (const dialog of [sheet, filterSheet, installHelp, healthSheet, notifySheet, keysSheet, menuSheet, composeSheet, snoozeSheet, folderSheet, bulkSheet]) {
+for (const dialog of [sheet, filterSheet, installHelp, healthSheet, notifySheet, appearanceSheet, keysSheet, menuSheet, composeSheet, snoozeSheet, folderSheet, bulkSheet]) {
   dialog.addEventListener('cancel', (e) => {
     e.preventDefault();
     // Escape on the composer's list of addresses shuts the list, not the letter.
@@ -463,6 +464,7 @@ $('#install-close').onclick = () => closeSheet(installHelp, false);
 $('#install-done').onclick = () => closeSheet(installHelp, false);
 $('#health-done').onclick = () => closePopover(healthSheet, false);
 $('#notify-done').onclick = () => closePopover(notifySheet, false);
+$('#appearance-done').onclick = () => closePopover(appearanceSheet, false);
 $('#snooze-done').onclick = () => closePopover(snoozeSheet, false);
 $('#bulk-done').onclick = () => closePopover(bulkSheet, false);
 $('#keys-done').onclick = () => closeSheet(keysSheet, false);
@@ -1794,20 +1796,29 @@ function endCodeWait(arrived) {
   narrateCode(arrived.verificationCode ? fill('code.arrived', { sender }) : t('code.unread'));
 }
 
-// ---- Theme: a two-state switch, the half-filled disc naming the destination theme. ----
+// ---- Appearance: one light/dark switch and one of four colour packs. ----
 const THEMES = ['light', 'dark'];
+const PALETTE_CHOICES = ['classic', 'sage', 'sand', 'plum'];
+const PALETTE_ACCENTS = {
+  classic: ['#3358d4', '#8aa9ff'],
+  sage: ['#2b6b6b', '#79c9c0'],
+  sand: ['#415d8a', '#a8c2ef'],
+  plum: ['#7a3f86', '#d9a0e2'],
+};
 function readTheme() {
   try {
     const stored = localStorage.getItem('theme');
     return THEMES.includes(stored) ? stored : 'light';
   } catch (e) { return 'light'; }
 }
-function applyTheme(choice) {
+function readPalette() {
+  try {
+    const stored = localStorage.getItem('palette');
+    return PALETTE_CHOICES.includes(stored) ? stored : 'classic';
+  } catch (e) { return 'classic'; }
+}
+function paintChrome() {
   const root = document.documentElement;
-  root.dataset.theme = choice;
-  // The manifest is served per request: this cookie is how an install gets a
-  // splash and task-switcher colour that match the theme chosen here.
-  try { document.cookie = 'theme=' + choice + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
   // iOS samples theme-color when a home-screen app opens, but the safe-area
   // backing above is live CSS. Keep both native status-bar text style and
   // browser chrome metadata in sync with the active palette.
@@ -1815,35 +1826,101 @@ function applyTheme(choice) {
   const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
   if (meta && bg) meta.setAttribute('content', bg);
   const appleStatus = document.querySelector('meta[name=apple-mobile-web-app-status-bar-style]');
-  if (appleStatus) appleStatus.setAttribute('content', choice === 'dark' ? 'black-translucent' : 'default');
-  const button = document.querySelector('#theme');
-  if (button) {
-    // Named for what it does, so the label never reads as the current state.
-    const label = t(choice === 'dark' ? 'theme.toLight' : 'theme.toDark');
-    button.title = label;
-    button.setAttribute('aria-label', label);
-  }
+  if (appleStatus) appleStatus.setAttribute('content', root.dataset.theme === 'dark' ? 'black-translucent' : 'default');
 }
-$('#theme').onclick = (event) => {
-  const next = readTheme() === 'dark' ? 'light' : 'dark';
-  const apply = () => {
-    try { localStorage.setItem('theme', next); } catch (e) {}
-    applyTheme(next);
-    themeChanged();
-  };
-  // Where the browser can, the other theme spreads out from the switch that
-  // asked for it. Elsewhere, and for anyone who prefers no motion, it just is.
-  if (!document.startViewTransition || reduceMotion()) { apply(); return; }
-  const r = event.currentTarget.getBoundingClientRect();
+function applyTheme(choice) {
+  document.documentElement.dataset.theme = choice;
+  // The manifest is served per request: this cookie is how an install gets a
+  // splash and task-switcher colour that match the theme chosen here.
+  try { document.cookie = 'theme=' + choice + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
+  paintChrome();
+}
+function applyPalette(choice) {
+  document.documentElement.dataset.palette = choice;
+  // The same cookie tells the next server render which background to bake
+  // into the manifest and the installed app's launch screen.
+  try { document.cookie = 'palette=' + choice + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
+  paintChrome();
+}
+function changeAppearance(event, apply) {
+  const run = () => { apply(); themeChanged(); };
+  // Where the browser can, the change spreads out from the control that asked
+  // for it. Elsewhere, and for anyone who prefers no motion, it just is.
+  if (!document.startViewTransition || reduceMotion()) { run(); return; }
+  const r = event && event.currentTarget && event.currentTarget.getBoundingClientRect
+    ? event.currentTarget.getBoundingClientRect()
+    : { left: innerWidth / 2, top: 0, width: 0, height: 0 };
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-  document.startViewTransition(apply).ready.then(() => {
+  document.startViewTransition(run).ready.then(() => {
     document.documentElement.animate(
       { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + radius + 'px at ' + x + 'px ' + y + 'px)'] },
       { duration: 420, easing: 'cubic-bezier(.2,.7,.2,1)', pseudoElement: '::view-transition-new(root)' },
     );
   }).catch(() => {});
-};
+}
+function renderAppearance() {
+  if (!appearanceBody) return;
+  appearanceBody.textContent = '';
+  const themeLabel = el('p', 'appearance-label', t('theme.mode'));
+  appearanceBody.appendChild(themeLabel);
+  const seg = el('div', 'appearance-seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', t('theme.mode'));
+  for (const choice of THEMES) {
+    const current = readTheme() === choice;
+    const button = el('button', current ? 'on' : '', t(choice === 'light' ? 'theme.light' : 'theme.dark'));
+    button.type = 'button';
+    button.setAttribute('aria-pressed', current ? 'true' : 'false');
+    button.onclick = (event) => {
+      if (readTheme() === choice) return;
+      changeAppearance(event, () => {
+        try { localStorage.setItem('theme', choice); } catch (e) {}
+        applyTheme(choice);
+        renderAppearance();
+      });
+    };
+    seg.appendChild(button);
+  }
+  appearanceBody.appendChild(seg);
+  appearanceBody.appendChild(el('p', 'appearance-label gap', t('theme.palette')));
+  const grid = el('div', 'appearance-palettes');
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', t('theme.palette'));
+  for (const key of PALETTE_CHOICES) {
+    const current = readPalette() === key;
+    const button = el('button', 'appearance-palette' + (current ? ' on' : ''));
+    button.type = 'button';
+    button.setAttribute('aria-pressed', current ? 'true' : 'false');
+    const swatches = el('span', 'appearance-swatches');
+    swatches.setAttribute('aria-hidden', 'true');
+    for (const accent of PALETTE_ACCENTS[key]) {
+      const swatch = el('span', 'appearance-swatch');
+      swatch.style.background = accent;
+      swatches.appendChild(swatch);
+    }
+    button.appendChild(swatches);
+    button.appendChild(el('span', 'appearance-palette-name', t('theme.' + key)));
+    button.appendChild(el('span', 'appearance-check', '\u2713'));
+    button.onclick = (event) => {
+      if (readPalette() === key) return;
+      changeAppearance(event, () => {
+        try { localStorage.setItem('palette', key); } catch (e) {}
+        applyPalette(key);
+        renderAppearance();
+      });
+    };
+    grid.appendChild(button);
+  }
+  appearanceBody.appendChild(grid);
+  appearanceBody.appendChild(el('p', 'appearance-note', t('theme.paletteNote')));
+}
+function openAppearance() {
+  if (appearanceSheet.open) { closePopover(appearanceSheet, false); return; }
+  renderAppearance();
+  openPopover(appearanceSheet, $('#theme'), { width: 304, align: 'end', fixed: true, history: !isWide() });
+}
+$('#theme').onclick = openAppearance;
 
 // ---- List style: per-device layout stored in localStorage. ----
 const LAYOUTS = ['cards', 'digest', 'crisp', 'default'];
@@ -1901,10 +1978,12 @@ function applyLanguage(next) {
   if (refresh && !refresh.disabled) { refresh.setAttribute('aria-label', t('refresh.label')); refresh.title = t('refresh.label'); }
   if (connectionProblem) setNetworkIssue(true);
   applyTheme(readTheme());
+  applyPalette(readPalette());
   applyLayout(readLayout());
   renderAll();
   if (healthSheet.open) redrawHealth();
   if (folderSheet.open) drawFolders();
+  if (appearanceSheet && appearanceSheet.open) renderAppearance();
   languageChanged();
 }
 $('#lang').onclick = () => {

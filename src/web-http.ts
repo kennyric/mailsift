@@ -8,6 +8,7 @@
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import { PALETTE_NAMES } from './web-styles.js';
 import type { LiveChannel } from './web-live.js';
 
 export interface WebResponse {
@@ -109,6 +110,12 @@ export function embedded(req: IncomingMessage): boolean {
 /** The saved light/dark choice, as the server can paint it before any script runs. */
 export function themeOf(req: IncomingMessage): 'light' | 'dark' {
   return readCookie(req.headers.cookie, 'theme') === 'dark' ? 'dark' : 'light';
+}
+
+/** The colour pack named by the cookie, or Classic for an older or unknown one. */
+export function paletteOf(req: IncomingMessage): string {
+  const value = readCookie(req.headers.cookie, 'palette');
+  return (PALETTE_NAMES as readonly string[]).includes(value) ? value : 'classic';
 }
 
 export function readCookie(header: string | undefined, name: string): string {
