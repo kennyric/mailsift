@@ -365,25 +365,56 @@ function readShared(): { values: Record<string, string> } {
   return { values: parseDocument(readSealed(SETTINGS_ROW)).values };
 }
 
-function readMailboxDocument(userID: string): { mailboxes: MailboxSettings[]; setupCompletedAt?: string } {
+function readMailboxDocument(userID: string): {
+  mailboxes: MailboxSettings[]; setupCompletedAt?: string; values: Record<string, string>;
+} {
   const raw = readSealed(mailboxRow(userID));
   if (raw) {
     const doc = parseDocument(raw);
-    return { mailboxes: doc.mailboxes, ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}) };
+    return {
+      mailboxes: doc.mailboxes,
+      ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
+      values: doc.values,
+    };
   }
   if (userID === 'owner') {
     const legacy = parseDocument(readSealed(SETTINGS_ROW));
-    return { mailboxes: legacy.mailboxes, ...(legacy.setupCompletedAt ? { setupCompletedAt: legacy.setupCompletedAt } : {}) };
+    return {
+      mailboxes: legacy.mailboxes,
+      ...(legacy.setupCompletedAt ? { setupCompletedAt: legacy.setupCompletedAt } : {}),
+      values: {},
+    };
   }
-  return { mailboxes: [] };
+  return { mailboxes: [], values: {} };
 }
 
-/** The document a user sees: shared scalars plus their own mailboxes. */
+/** Keys a person may override for themselves. Everything else is the owner's. */
+export const PERSONAL_KEYS = new Set([
+  'DIGEST_HOUR', 'DIGEST_ENABLED', 'PUSH_MIN_IMPORTANCE', 'DIGEST_MIN_IMPORTANCE',
+  'MAIL_ALWAYS_IMPORTANT', 'MAIL_NEVER_IMPORTANT', 'MAIL_KEYWORDS', 'MAIL_CONTEXT',
+  'QUIET_HOURS_START', 'QUIET_HOURS_END', 'PDF_PASSWORDS',
+]);
+
+export function isPersonalKey(key: string): boolean {
+  return PERSONAL_KEYS.has(key);
+}
+
+/** Only this person's overrides, without the shared values. */
+export function readPersonalSettings(userID: string): Record<string, string> {
+  return { ...readMailboxDocument(userID).values };
+}
+
+/** The shared scalars only, without anybody's personal overrides. */
+export function readSharedValues(): Record<string, string> {
+  return { ...readShared().values };
+}
+
 export function readSettingsFor(userID: string): SettingsDocument {
   const shared = readShared();
   const boxes = readMailboxDocument(userID);
   return {
-    values: { ...shared.values },
+    // Shared scalars first, then this person's own overrides.
+    values: { ...shared.values, ...boxes.values },
     mailboxes: boxes.mailboxes,
     ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
   };
@@ -436,7 +467,7 @@ export function updateSettingsFor(userID: string, change: (doc: SettingsDocument
     const shared = readShared();
     const boxes = readMailboxDocument(userID);
     const doc: SettingsDocument = {
-      values: { ...shared.values },
+      values: { ...shared.values, ...boxes.values },
       mailboxes: boxes.mailboxes.map((mailbox) => ({ ...mailbox })),
       ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
     };
@@ -444,29 +475,86 @@ export function updateSettingsFor(userID: string, change: (doc: SettingsDocument
     const clash = mailboxClash(userID, doc.mailboxes);
     if (clash) throw new MailboxConflictError(clash.address, clash.ownerID);
     const role = roleOf(userID);
-    const valuesChanged = JSON.stringify(doc.values) !== JSON.stringify(shared.values);
-    if (valuesChanged && role === 'member') throw new SharedSettingsDenied();
-    if (valuesChanged) writeSealed(SHARED_ROW, JSON.stringify({ values: doc.values }));
+    const before = { ...shared.values, ...boxes.values };
+    const changed = new Set<string>();
+    for (const key of Object.keys(doc.values)) if (doc.values[key] !== before[key]) changed.add(key);
+    for (const key of Object.keys(before)) if (!(key in doc.values)) changed.add(key);
+    // A member may only change the keys that are theirs; the rest stay shared.
+    if (role === 'member') {
+      for (const key of changed) if (!isPersonalKey(key)) throw new SharedSettingsDenied();
+    }
+    const personal = { ...boxes.values };
+    for (const key of changed) {
+      if (role === 'member') {
+        if (doc.values[key] === undefined) delete personal[key];
+        else personal[key] = doc.values[key];
+      } else if (key === 'QUIET_HOURS_START' || key === 'QUIET_HOURS_END' || key === 'PDF_PASSWORDS') {
+        // Personal-only keys stay personal, even for the owner.
+        if (doc.values[key] === undefined) delete personal[key];
+        else personal[key] = doc.values[key];
+      }
+    }
+    if (role !== 'member') {
+      const nextShared = { ...shared.values };
+      let sharedChanged = false;
+      for (const key of changed) {
+        if (key === 'QUIET_HOURS_START' || key === 'QUIET_HOURS_END' || key === 'PDF_PASSWORDS') continue;
+        if (doc.values[key] === undefined) delete nextShared[key];
+        else nextShared[key] = doc.values[key];
+        sharedChanged = true;
+      }
+      if (sharedChanged) writeSealed(SHARED_ROW, JSON.stringify({ values: nextShared }));
+    }
     writeSealed(mailboxRow(userID), JSON.stringify({
       mailboxes: doc.mailboxes,
       ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
+      ...(Object.keys(personal).length ? { values: personal } : {}),
     }));
     if (role !== 'member') {
       // One release of rollback compatibility: the previous image reads this
       // row, so it must contain the owner's data and never a member's.
       writeSealed(SETTINGS_ROW, JSON.stringify({
-        values: doc.values,
+        values: readShared().values,
         mailboxes: doc.mailboxes,
         ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
       }));
     }
-    return doc;
+    return readSettingsFor(userID);
   });
 }
 
 /** Change the owner's document; kept for CLI tools and tests. */
 export function updateSettings(change: (doc: SettingsDocument) => void): SettingsDocument {
   return updateSettingsFor('owner', change);
+}
+
+/**
+ * Change only this person's overrides, leaving the shared values and their
+ * mailboxes alone. Used by the preferences page.
+ */
+export function updatePersonalSettings(userID: string, change: (doc: SettingsDocument) => void): SettingsDocument {
+  const db = database();
+  return transaction(db, () => {
+    const shared = readShared();
+    const boxes = readMailboxDocument(userID);
+    const doc: SettingsDocument = {
+      values: { ...shared.values, ...boxes.values },
+      mailboxes: boxes.mailboxes.map((mailbox) => ({ ...mailbox })),
+      ...(boxes.setupCompletedAt ? { setupCompletedAt: boxes.setupCompletedAt } : {}),
+    };
+    change(doc);
+    const personal: Record<string, string> = {};
+    for (const [key, value] of Object.entries(doc.values)) {
+      if (!isPersonalKey(key)) continue;
+      if (value !== shared.values[key]) personal[key] = value;
+    }
+    writeSealed(mailboxRow(userID), JSON.stringify({
+      mailboxes: doc.mailboxes,
+      ...(doc.setupCompletedAt ? { setupCompletedAt: doc.setupCompletedAt } : {}),
+      ...(Object.keys(personal).length ? { values: personal } : {}),
+    }));
+    return { ...doc, values: { ...shared.values, ...personal } };
+  });
 }
 
 export function newMailboxId(): string {

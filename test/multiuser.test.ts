@@ -11,7 +11,8 @@ import { StateStore, storePathFor } from '../src/services/state.js';
 import { setSettingsAccountsFor, type Account } from '../src/config.js';
 import {
   claimOwner, closeSettingsStore, createUser, issueSetupCode, listUsers, MailboxConflictError,
-  newMailboxId, readSettingsFor, SharedSettingsDenied, signIn, updateSettingsFor, type User,
+  newMailboxId, readPersonalSettings, readSettingsFor, readSharedValues, SharedSettingsDenied, signIn,
+  updatePersonalSettings, updateSettingsFor, type User,
 } from '../src/services/settings-store.js';
 
 let dir: string;
@@ -84,12 +85,40 @@ describe('per-user settings', { timeout: 30_000 }, () => {
     expect(readSettingsFor(member.id).mailboxes.map((m) => m.username)).toEqual(['friend@example.com']);
   });
 
-  it('shares the scalar settings but refuses a member writing them', () => {
-    updateSettingsFor(owner.id, (doc) => { doc.values['DIGEST_HOUR'] = '21'; });
-    expect(readSettingsFor(member.id).values['DIGEST_HOUR']).toBe('21');
-    expect(() => updateSettingsFor(member.id, (doc) => { doc.values['DIGEST_HOUR'] = '7'; }))
+  it('shares the owner-only scalars but lets a member keep personal ones', () => {
+    updateSettingsFor(owner.id, (doc) => { doc.values['POLL_INTERVAL_SECONDS'] = '300'; });
+    expect(readSettingsFor(member.id).values['POLL_INTERVAL_SECONDS']).toBe('300');
+    expect(() => updateSettingsFor(member.id, (doc) => { doc.values['POLL_INTERVAL_SECONDS'] = '60'; }))
       .toThrow(SharedSettingsDenied);
-    expect(readSettingsFor(owner.id).values['DIGEST_HOUR']).toBe('21');
+    expect(readSettingsFor(owner.id).values['POLL_INTERVAL_SECONDS']).toBe('300');
+
+    updateSettingsFor(member.id, (doc) => { doc.values['DIGEST_HOUR'] = '21'; });
+    expect(readSettingsFor(member.id).values['DIGEST_HOUR']).toBe('21');
+    expect(readSettingsFor(owner.id).values['DIGEST_HOUR']).not.toBe('21');
+  });
+
+  it('stores personal overrides without touching the shared values', () => {
+    updatePersonalSettings(member.id, (doc) => {
+      doc.values['DIGEST_HOUR'] = '21';
+      doc.values['QUIET_HOURS_START'] = '22:00';
+      doc.values['QUIET_HOURS_END'] = '07:00';
+      doc.values['PDF_PASSWORDS'] = 'a secret';
+    });
+    expect(readSettingsFor(member.id).values['DIGEST_HOUR']).toBe('21');
+    expect(readSettingsFor(owner.id).values['DIGEST_HOUR']).not.toBe('21');
+    expect(readSharedValues()['DIGEST_HOUR']).not.toBe('21');
+    expect(readPersonalSettings(member.id)).toMatchObject({
+      DIGEST_HOUR: '21', QUIET_HOURS_START: '22:00', QUIET_HOURS_END: '07:00', PDF_PASSWORDS: 'a secret',
+    });
+  });
+
+  it('keeps the owner\'s quiet hours when shared settings are saved', () => {
+    updatePersonalSettings(owner.id, (doc) => {
+      doc.values['QUIET_HOURS_START'] = '22:00';
+      doc.values['QUIET_HOURS_END'] = '07:00';
+    });
+    updateSettingsFor(owner.id, (doc) => { doc.values['POLL_INTERVAL_SECONDS'] = '600'; });
+    expect(readPersonalSettings(owner.id)).toMatchObject({ QUIET_HOURS_START: '22:00', QUIET_HOURS_END: '07:00' });
   });
 
   it('refuses the same address in two accounts', () => {

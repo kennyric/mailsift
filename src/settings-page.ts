@@ -34,6 +34,94 @@ const EN: Dict = {
   'nav.back': 'Back to mail',
   'nav.signout': 'Sign out',
   'nav.users': 'Users',
+  'nav.preferences': 'Preferences',
+  'nav.sync': 'Sync',
+  'nav.documents': 'Documents',
+  'docs.title': 'Documents & bills',
+  'docs.lede': 'PDFs from your mail, read locally. Index one by one, then search the text or see what looks like a bill.',
+  'docs.index': 'Index PDFs',
+  'docs.indexing': 'Reading PDFs…',
+  'docs.indexed': 'Indexed {n}',
+  'docs.left': '{n} left',
+  'docs.none': 'No documents indexed yet.',
+  'docs.name': 'File',
+  'docs.subject': 'Subject',
+  'docs.sender': 'From',
+  'docs.date': 'Date',
+  'docs.pages': 'Pages',
+  'docs.amount': 'Amount',
+  'docs.due': 'Due',
+  'docs.bill': 'Bill',
+  'docs.all': 'All documents',
+  'docs.onlyBills': 'Bills only',
+  'docs.searchPlaceholder': 'Search the extracted text…',
+  'docs.locked': 'password required',
+  'docs.passwordHint': 'A locked PDF needs its password in Preferences → PDF passwords.',
+  'docs.open': 'Open',
+  'docs.close': 'Close',
+  'docs.noText': 'No text was extracted.',
+  'sync.title': 'Sync & where is my mail',
+  'sync.lede': 'What mailsift is watching, how far back it looked, and a live search of the mailbox for anything you cannot find here.',
+  'sync.lastCheck': 'Last completed check',
+  'sync.never': 'never',
+  'sync.searchTitle': 'Where is this mail?',
+  'sync.searchHint': 'Searches the mailbox itself (Gmail: All Mail, so archived mail is included). Nothing is stored.',
+  'sync.query': 'Subject or sender',
+  'sync.queryPlaceholder': 'Billing Statement',
+  'sync.search': 'Search the mailbox',
+  'sync.searching': 'Searching…',
+  'sync.noResults': 'Nothing matched in the mailbox search.',
+  'sync.foundIn': 'Found in',
+  'sync.watching': 'What is being watched',
+  'sync.mailbox': 'Mailbox',
+  'sync.folders': 'Folders',
+  'sync.defaultFolders': 'Inbox and spam',
+  'sync.account': 'Account',
+  'sync.folder': 'Folder',
+  'sync.lastUid': 'Last UID',
+  'sync.updated': 'Updated',
+  'sync.stored': 'Stored',
+  'sync.window': 'The first look reaches back {n} days. Older mail was never fetched.',
+  'sync.archivedNote': 'Only the folders above are scanned. Mail archived by a Gmail filter is invisible unless All Mail or its label is added to the mailbox folders.',
+  'sync.accountsNote': 'Only the mailboxes above are connected; mail in any other account never reaches mailsift.',
+  'sync.dead': 'Messages that could not be triaged',
+  'sync.deadNone': 'None.',
+  'sync.from': 'From',
+  'sync.subject': 'Subject',
+  'sync.date': 'Date',
+  'sync.pdf': 'PDF',
+  'sync.savePdf': 'Save PDFs',
+  'sync.savedPdf': 'Saved {n}, locked {m}',
+  'sync.pdfFailed': 'failed',
+  'pref.title': 'Preferences',
+  'pref.lede': 'What is yours alone: when your digest arrives, how loudly your phone rings, quiet hours, and the rules used for your mail. Blank fields fall back to the shared setting.',
+  'pref.digest': 'Daily digest',
+  'pref.digestHour': 'Digest hour (0–23)',
+  'pref.digestEnabled': 'Digest delivery',
+  'pref.pushLevel': 'Push me for',
+  'pref.digestLevel': 'Include in digest',
+  'pref.quiet': 'Quiet hours',
+  'pref.quietStart': 'From',
+  'pref.quietEnd': 'To',
+  'pref.quietHint': 'Browser notifications are held during this window and delivered when it ends.',
+  'pref.rules': 'My triage rules',
+  'pref.rulesOwner': 'As the owner, your rules are the shared ones in Settings → Triage rules.',
+  'pref.always': 'Always important (comma separated)',
+  'pref.never': 'Never important (comma separated)',
+  'pref.keywords': 'Keywords',
+  'pref.context': 'About you',
+  'pref.pdf': 'PDF passwords',
+  'pref.pdfHint': 'One per line. Tried only on your own attachments, stored encrypted. Leave blank to keep what is set.',
+  'pref.pdfSet': 'A password list is set. Leave blank to keep it.',
+  'pref.pdfClear': 'Forget the stored PDF passwords',
+  'pref.saved': 'Saved. It applies after the next restart.',
+  'pref.sharedDefault': 'Shared default',
+  'pref.on': 'On',
+  'pref.off': 'Off',
+  'pref.any': 'Anything',
+  'pref.info': 'Info and above',
+  'pref.warning': 'Warning and above',
+  'pref.critical': 'Critical only',
   'shared.readOnly': 'These shared settings are managed by the owner.',
   'users.title': 'Users',
   'users.lede': 'People who can sign in to this mailsift. Each has their own mailboxes; the AI, schedule and privacy settings are shared.',
@@ -212,6 +300,94 @@ const ZH: Dict = {
   'nav.back': '返回邮件',
   'nav.signout': '退出登录',
   'nav.users': '用户',
+  'nav.preferences': '个人偏好',
+  'nav.sync': '同步',
+  'nav.documents': '文档',
+  'docs.title': '文档与账单',
+  'docs.lede': '来自邮件的 PDF，在本地读取。逐个索引后可以搜索文字，或查看像账单的文档。',
+  'docs.index': '索引 PDF',
+  'docs.indexing': '正在读取 PDF…',
+  'docs.indexed': '已索引 {n}',
+  'docs.left': '剩余 {n}',
+  'docs.none': '还没有索引文档。',
+  'docs.name': '文件',
+  'docs.subject': '主题',
+  'docs.sender': '发件人',
+  'docs.date': '日期',
+  'docs.pages': '页数',
+  'docs.amount': '金额',
+  'docs.due': '到期',
+  'docs.bill': '账单',
+  'docs.all': '全部文档',
+  'docs.onlyBills': '只看账单',
+  'docs.searchPlaceholder': '搜索提取的文字…',
+  'docs.locked': '需要密码',
+  'docs.passwordHint': '锁定的 PDF 需要在“个人偏好 → PDF 密码”里填写密码。',
+  'docs.open': '打开',
+  'docs.close': '关闭',
+  'docs.noText': '没有提取到文字。',
+  'sync.title': '同步与邮件位置',
+  'sync.lede': 'mailsift 正在监控什么、回溯了多久，以及直接在邮箱里搜索找不到的邮件。',
+  'sync.lastCheck': '上次完成的检查',
+  'sync.never': '从未',
+  'sync.searchTitle': '这封邮件在哪里？',
+  'sync.searchHint': '直接搜索邮箱（Gmail 使用“所有邮件”，包含已归档邮件）。不会保存任何内容。',
+  'sync.query': '主题或发件人',
+  'sync.queryPlaceholder': 'Billing Statement',
+  'sync.search': '搜索邮箱',
+  'sync.searching': '搜索中…',
+  'sync.noResults': '邮箱搜索没有匹配。',
+  'sync.foundIn': '找到于',
+  'sync.watching': '正在监控',
+  'sync.mailbox': '邮箱',
+  'sync.folders': '文件夹',
+  'sync.defaultFolders': '收件箱和垃圾邮件',
+  'sync.account': '账号',
+  'sync.folder': '文件夹',
+  'sync.lastUid': '最后 UID',
+  'sync.updated': '更新时间',
+  'sync.stored': '已存',
+  'sync.window': '首次回溯 {n} 天。更早的邮件没有抓取。',
+  'sync.archivedNote': '只扫描上面的文件夹。被 Gmail 过滤器归档的邮件，除非把“所有邮件”或对应标签加入文件夹，否则看不到。',
+  'sync.accountsNote': '只连接了上面的邮箱；其他账号的邮件不会进入 mailsift。',
+  'sync.dead': '无法处理的邮件',
+  'sync.deadNone': '没有。',
+  'sync.from': '发件人',
+  'sync.subject': '主题',
+  'sync.date': '日期',
+  'sync.pdf': 'PDF',
+  'sync.savePdf': '保存 PDF',
+  'sync.savedPdf': '已保存 {n}，需要密码 {m}',
+  'sync.pdfFailed': '失败',
+  'pref.title': '个人偏好',
+  'pref.lede': '只属于你的设置：摘要时间、手机提醒强度、安静时间，以及用于你邮件的规则。留空则使用共享设置。',
+  'pref.digest': '每日摘要',
+  'pref.digestHour': '摘要小时（0–23）',
+  'pref.digestEnabled': '摘要发送',
+  'pref.pushLevel': '推送级别',
+  'pref.digestLevel': '摘要包含',
+  'pref.quiet': '安静时间',
+  'pref.quietStart': '从',
+  'pref.quietEnd': '到',
+  'pref.quietHint': '这个时间段内的浏览器通知会暂存，结束后再发送。',
+  'pref.rules': '我的筛选规则',
+  'pref.rulesOwner': '你是管理员，规则在“设置 → 筛选规则”里统一管理。',
+  'pref.always': '始终重要（逗号分隔）',
+  'pref.never': '从不重要（逗号分隔）',
+  'pref.keywords': '关键词',
+  'pref.context': '关于你',
+  'pref.pdf': 'PDF 密码',
+  'pref.pdfHint': '每行一个。只用于你自己的附件，加密保存。留空则保留现有设置。',
+  'pref.pdfSet': '已经设置密码列表。留空保留。',
+  'pref.pdfClear': '清除已保存的 PDF 密码',
+  'pref.saved': '已保存。下一次重启后生效。',
+  'pref.sharedDefault': '共享默认',
+  'pref.on': '开',
+  'pref.off': '关',
+  'pref.any': '全部',
+  'pref.info': '信息及以上',
+  'pref.warning': '警告及以上',
+  'pref.critical': '仅严重',
   'shared.readOnly': '这些共享设置由管理员管理。',
   'users.title': '用户',
   'users.lede': '可以登录这个 mailsift 的人。每个人有自己的邮箱；AI、计划和隐私设置是共享的。',
@@ -543,6 +719,9 @@ export function renderSettingsPage(
         <a class="brand" href="${mode === 'setup' ? '/setup' : '/'}"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
         <span class="st-crumb" id="crumb">${escapeHtml(title)}</span>
         <div class="st-header-actions">
+          ${mode === 'settings' ? `<a class="word-btn" href="/documents">${escapeHtml(d['nav.documents']!)}</a>` : ''}
+          ${mode === 'settings' ? `<a class="word-btn" href="/sync">${escapeHtml(d['nav.sync']!)}</a>` : ''}
+          ${mode === 'settings' ? `<a class="word-btn" href="/preferences">${escapeHtml(d['nav.preferences']!)}</a>` : ''}
           ${mode === 'settings' && asOwner ? `<a class="word-btn" href="/users">${escapeHtml(d['nav.users']!)}</a>` : ''}
           ${mode === 'settings' ? `<a class="word-btn" href="/" id="back">${escapeHtml(d['nav.back']!)}</a>` : ''}
           <button type="button" class="word-btn" id="lang">${escapeHtml(d['lang.face']!)}</button>
@@ -639,6 +818,10 @@ body{min-height:100vh}
 .st-user{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .st-user-name{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
 .st-user-actions{display:flex;gap:6px;flex-wrap:wrap}
+.st-table{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0 12px}
+.st-table th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+.st-table td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.st-table td.num{font-variant-numeric:tabular-nums}
 .st-empty{color:var(--muted);font-size:14px;padding:16px 2px;border-bottom:1px solid var(--line);margin:0}
 .st-block{display:flex;flex-direction:column;gap:10px;padding:16px 0;border-top:1px solid var(--line)}
 .st-block:first-of-type{border-top:0;padding-top:0}
@@ -798,6 +981,453 @@ export function renderUsersPage(
     })();</script>`, nonce);
 }
 
+
+export function renderPreferencesPage(
+  lang: Language, nonce: string, version: string,
+  user: { username: string; role: string },
+  personal: Record<string, string>, shared: Record<string, string>, pdfSet: boolean,
+): string {
+  const d = dict(lang);
+  const s = (key: string): string => escapeHtml(d[key] ?? key);
+  const personalValue = (key: string): string => escapeHtml(personal[key] ?? '');
+  const placeholder = (key: string, fallback = ''): string => escapeHtml(shared[key] ?? fallback);
+  const owner = user.role === 'owner';
+  const level = (key: string, id: string): string => {
+    const current = personal[key] ?? '';
+    const options = [
+      ['', s('pref.sharedDefault')],
+      ['info', s('pref.info')],
+      ['warning', s('pref.warning')],
+      ['critical', s('pref.critical')],
+    ];
+    return `<select id="${id}">${options.map(([value, label]) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+  };
+  const digestEnabled = personal['DIGEST_ENABLED'] ?? '';
+  const rules = owner ? '' : `
+      <section class="st-section">
+        <h2>${s('pref.rules')}</h2>
+        <div class="st-form">
+          <div class="st-field"><label for="always">${s('pref.always')}</label><textarea id="always" rows="2" spellcheck="false">${personalValue('MAIL_ALWAYS_IMPORTANT')}</textarea></div>
+          <div class="st-field"><label for="never">${s('pref.never')}</label><textarea id="never" rows="2" spellcheck="false">${personalValue('MAIL_NEVER_IMPORTANT')}</textarea></div>
+          <div class="st-field"><label for="keywords">${s('pref.keywords')}</label><textarea id="keywords" rows="2" spellcheck="false">${personalValue('MAIL_KEYWORDS')}</textarea></div>
+          <div class="st-field"><label for="context">${s('pref.context')}</label><textarea id="context" rows="3">${personalValue('MAIL_CONTEXT')}</textarea></div>
+        </div>
+      </section>`;
+  return shell(lang, d['pref.title']!, `
+    <header class="st-header">
+      <div class="st-header-inner">
+        <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
+        <span class="st-crumb">${s('pref.title')} · ${escapeHtml(user.username)}</span>
+        <div class="st-header-actions">
+          <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
+          <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="st-main st-users-main">
+      <section class="st-section">
+        <h2>${s('pref.title')}</h2>
+        <p class="st-lede">${s('pref.lede')}</p>
+      </section>
+      <section class="st-section">
+        <h2>${s('pref.digest')}</h2>
+        <div class="st-form">
+          <div class="st-field"><label for="digest-hour">${s('pref.digestHour')}</label>
+            <input id="digest-hour" type="number" min="0" max="23" inputmode="numeric" value="${personalValue('DIGEST_HOUR')}" placeholder="${placeholder('DIGEST_HOUR', '9')}"></div>
+          <div class="st-field"><label for="digest-enabled">${s('pref.digestEnabled')}</label>
+            <select id="digest-enabled">
+              <option value=""${digestEnabled === '' ? ' selected' : ''}>${s('pref.sharedDefault')}</option>
+              <option value="true"${digestEnabled === 'true' ? ' selected' : ''}>${s('pref.on')}</option>
+              <option value="false"${digestEnabled === 'false' ? ' selected' : ''}>${s('pref.off')}</option>
+            </select></div>
+          <div class="st-field"><label for="digest-level">${s('pref.digestLevel')}</label>${level('DIGEST_MIN_IMPORTANCE', 'digest-level')}</div>
+        </div>
+      </section>
+      <section class="st-section">
+        <h2>${s('pref.pushLevel')}</h2>
+        <div class="st-form">
+          <div class="st-field"><label for="push-level">${s('pref.pushLevel')}</label>${level('PUSH_MIN_IMPORTANCE', 'push-level')}</div>
+          <div class="st-field"><label>${s('pref.quiet')}</label>
+            <div class="st-row2">
+              <input id="quiet-start" type="text" inputmode="numeric" placeholder="${placeholder('QUIET_HOURS_START', '22:00')}" value="${personalValue('QUIET_HOURS_START')}" aria-label="${s('pref.quietStart')}">
+              <input id="quiet-end" type="text" inputmode="numeric" placeholder="${placeholder('QUIET_HOURS_END', '07:00')}" value="${personalValue('QUIET_HOURS_END')}" aria-label="${s('pref.quietEnd')}">
+            </div>
+            <p class="st-help">${s('pref.quietHint')}</p>
+          </div>
+        </div>
+      </section>
+      ${rules || `<section class="st-section"><h2>${s('pref.rules')}</h2><p class="st-lede">${s('pref.rulesOwner')}</p></section>`}
+      <section class="st-section">
+        <h2>${s('pref.pdf')}</h2>
+        <p class="st-help">${pdfSet ? s('pref.pdfSet') : s('pref.pdfHint')}</p>
+        <div class="st-form">
+          <div class="st-field"><textarea id="pdf-passwords" rows="3" spellcheck="false" autocomplete="off" placeholder="${s('pref.pdfHint')}"></textarea></div>
+          <label class="st-toggle"><span class="st-label">${s('pref.pdfClear')}</span><input type="checkbox" id="pdf-clear"></label>
+        </div>
+      </section>
+      <div class="st-foot"><span class="st-result" id="pref-result"></span><button type="button" class="st-btn primary" id="save">${s('common.save')}</button></div>
+    </main>
+    <script nonce="${nonce}">${storeLanguageScript()}
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      function collect() {
+        var out = {
+          DIGEST_HOUR: $('digest-hour').value.trim(),
+          DIGEST_ENABLED: $('digest-enabled').value,
+          PUSH_MIN_IMPORTANCE: $('push-level').value,
+          DIGEST_MIN_IMPORTANCE: $('digest-level').value,
+          QUIET_HOURS_START: $('quiet-start').value.trim(),
+          QUIET_HOURS_END: $('quiet-end').value.trim(),
+        };
+        if ($('always')) {
+          out.MAIL_ALWAYS_IMPORTANT = $('always').value.trim();
+          out.MAIL_NEVER_IMPORTANT = $('never').value.trim();
+          out.MAIL_KEYWORDS = $('keywords').value.trim();
+          out.MAIL_CONTEXT = $('context').value.trim();
+        }
+        var pdf = $('pdf-passwords').value.trim();
+        if ($('pdf-clear').checked) out.PDF_PASSWORDS = '';
+        else if (pdf) out.PDF_PASSWORDS = pdf;
+        return out;
+      }
+      $('save').onclick = async function () {
+        var result = $('pref-result');
+        result.className = 'st-result';
+        result.textContent = '';
+        try {
+          var response = await fetch('/api/admin/preferences', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ values: collect() }),
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) throw new Error(data.error || 'failed');
+          result.textContent = ${JSON.stringify(s('pref.saved'))};
+          result.className = 'st-result ok';
+        } catch (error) {
+          result.textContent = error.message;
+          result.className = 'st-result bad';
+        }
+      };
+    })();</script>`, nonce);
+}
+
+export interface SyncReport {
+  lastPollAt: string;
+  lookback: string;
+  mailboxes: Array<{ username: string; name: string; folders: string[]; readiness: string }>;
+  cursors: Array<{ account: string; folder: string; lastUid: number; updatedAt: string }>;
+  counts: Array<{ account: string; folder: string; count: number; oldest: string | null; newest: string | null }>;
+  dead: Array<{ subject: string; reason: string; createdAt: string }>;
+}
+
+const when = (value: string): string => (value ? value.replace('T', ' ').slice(0, 16) : '—');
+
+export function renderSyncPage(lang: Language, nonce: string, version: string, report: SyncReport): string {
+  const d = dict(lang);
+  const s = (key: string): string => escapeHtml(d[key] ?? key);
+  const fill = (key: string, value: string): string => escapeHtml((d[key] ?? key).replace('{n}', value));
+  const mailboxRows = report.mailboxes.map((mailbox) => `
+    <tr><td>${escapeHtml(mailbox.name || mailbox.username)}<br><small class="muted">${escapeHtml(mailbox.username)}</small></td>
+      <td>${mailbox.folders.length ? escapeHtml(mailbox.folders.join(', ')) : s('sync.defaultFolders')}</td>
+      <td>${escapeHtml(mailbox.readiness)}</td></tr>`).join('');
+  const cursorRows = report.cursors.map((cursor) => `
+    <tr><td>${escapeHtml(cursor.account)}</td><td>${escapeHtml(cursor.folder)}</td>
+      <td class="num">${cursor.lastUid}</td><td>${escapeHtml(when(cursor.updatedAt))}</td></tr>`).join('');
+  const countRows = report.counts.map((row) => `
+    <tr><td>${escapeHtml(row.account)}</td><td>${escapeHtml(row.folder)}</td>
+      <td class="num">${row.count}</td><td>${escapeHtml(when(row.oldest ?? ''))}</td><td>${escapeHtml(when(row.newest ?? ''))}</td></tr>`).join('');
+  const deadRows = report.dead.length ? report.dead.map((row) => `
+    <tr><td>${escapeHtml(row.subject || '—')}</td><td>${escapeHtml(row.reason)}</td><td>${escapeHtml(when(row.createdAt))}</td></tr>`).join('')
+    : `<tr><td colspan="3">${s('sync.deadNone')}</td></tr>`;
+  const options = report.mailboxes.map((mailbox) => `<option value="${escapeHtml(mailbox.username)}">${escapeHtml(mailbox.name || mailbox.username)}</option>`).join('');
+  return shell(lang, d['sync.title']!, `
+    <header class="st-header">
+      <div class="st-header-inner">
+        <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
+        <span class="st-crumb">${s('sync.title')}</span>
+        <div class="st-header-actions">
+          <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
+          <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="st-main st-users-main">
+      <section class="st-section">
+        <h2>${s('sync.title')}</h2>
+        <p class="st-lede">${s('sync.lede')}</p>
+        <p class="st-help">${s('sync.lastCheck')}: <strong>${escapeHtml(when(report.lastPollAt) || s('sync.never'))}</strong></p>
+        <p class="st-help">${fill('sync.window', report.lookback)}</p>
+      </section>
+      <section class="st-section">
+        <h2>${s('sync.searchTitle')}</h2>
+        <p class="st-help">${s('sync.searchHint')}</p>
+        <form class="st-form" id="sync-search">
+          <div class="st-row2">
+            <div class="st-field"><label for="sync-mailbox">${s('sync.mailbox')}</label><select id="sync-mailbox">${options}</select></div>
+            <div class="st-field"><label for="sync-query">${s('sync.query')}</label>
+              <input id="sync-query" type="search" placeholder="${s('sync.queryPlaceholder')}" autocomplete="off" spellcheck="false"></div>
+          </div>
+          <div class="st-foot"><span class="st-result" id="sync-result"></span><button type="submit" class="st-btn primary">${s('sync.search')}</button></div>
+        </form>
+        <div id="sync-hits"></div>
+      </section>
+      <section class="st-section">
+        <h2>${s('sync.watching')}</h2>
+        <table class="st-table">
+          <thead><tr><th>${s('sync.mailbox')}</th><th>${s('sync.folders')}</th><th>${s('sync.stored')}</th></tr></thead>
+          <tbody>${mailboxRows || `<tr><td colspan="3">${s('sync.noResults')}</td></tr>`}</tbody>
+        </table>
+        <p class="st-help">${s('sync.archivedNote')}</p>
+        <p class="st-help">${s('sync.accountsNote')}</p>
+      </section>
+      <section class="st-section">
+        <h2>${s('sync.folder')}</h2>
+        <table class="st-table">
+          <thead><tr><th>${s('sync.account')}</th><th>${s('sync.folder')}</th><th>${s('sync.lastUid')}</th><th>${s('sync.updated')}</th></tr></thead>
+          <tbody>${cursorRows || `<tr><td colspan="4">${s('sync.noResults')}</td></tr>`}</tbody>
+        </table>
+      </section>
+      <section class="st-section">
+        <h2>${s('sync.stored')}</h2>
+        <table class="st-table">
+          <thead><tr><th>${s('sync.account')}</th><th>${s('sync.folder')}</th><th>${s('sync.stored')}</th><th>${s('sync.date')}</th><th></th></tr></thead>
+          <tbody>${countRows || `<tr><td colspan="5">${s('sync.noResults')}</td></tr>`}</tbody>
+        </table>
+      </section>
+      <section class="st-section">
+        <h2>${s('sync.dead')}</h2>
+        <table class="st-table">
+          <thead><tr><th>${s('sync.subject')}</th><th></th><th>${s('sync.date')}</th></tr></thead>
+          <tbody>${deadRows}</tbody>
+        </table>
+      </section>
+    </main>
+    <script nonce="${nonce}">${storeLanguageScript()}
+    (function () {
+      var form = document.getElementById('sync-search');
+      var result = document.getElementById('sync-result');
+      var hits = document.getElementById('sync-hits');
+      var labels = {
+        from: ${JSON.stringify(s('sync.from'))},
+        subject: ${JSON.stringify(s('sync.subject'))},
+        date: ${JSON.stringify(s('sync.date'))},
+        folder: ${JSON.stringify(s('sync.folder'))},
+        foundIn: ${JSON.stringify(s('sync.foundIn'))},
+        none: ${JSON.stringify(s('sync.noResults'))},
+        searching: ${JSON.stringify(s('sync.searching'))},
+        pdf: ${JSON.stringify(s('sync.pdf'))},
+        savePdf: ${JSON.stringify(s('sync.savePdf'))},
+        saved: ${JSON.stringify(s('sync.savedPdf'))},
+        pdfFailed: ${JSON.stringify(s('sync.pdfFailed'))},
+      };
+      function table(items) {
+        var table = document.createElement('table');
+        table.className = 'st-table';
+        var head = document.createElement('thead');
+        var hr = document.createElement('tr');
+        [labels.date, labels.from, labels.subject, labels.folder, labels.pdf].forEach(function (text) {
+          var th = document.createElement('th'); th.textContent = text; hr.appendChild(th);
+        });
+        head.appendChild(hr); table.appendChild(head);
+        var body = document.createElement('tbody');
+        items.forEach(function (item) {
+          var tr = document.createElement('tr');
+          [item.date || '', (item.from && (item.from.name || item.from.address)) || '', item.subject || '', item.folder || ''].forEach(function (text) {
+            var td = document.createElement('td'); td.textContent = text; tr.appendChild(td);
+          });
+          var pdfCell = document.createElement('td');
+          var save = document.createElement('button');
+          save.type = 'button'; save.className = 'st-btn'; save.textContent = labels.savePdf;
+          save.onclick = async function () {
+            save.disabled = true;
+            try {
+              var response = await fetch('/api/documents/from-live', {
+                method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+                body: JSON.stringify({
+                  handle: item.handle, subject: item.subject,
+                  from: item.from && item.from.address, date: item.date,
+                }),
+              });
+              var data = await response.json().catch(function () { return {}; });
+              if (!response.ok) throw new Error(data.error || 'failed');
+              save.textContent = labels.saved.replace('{n}', String(data.indexed || 0)).replace('{m}', String(data.failed || 0));
+            } catch (error) {
+              save.textContent = labels.pdfFailed;
+              save.title = error.message;
+            }
+            save.disabled = false;
+          };
+          pdfCell.appendChild(save);
+          tr.appendChild(pdfCell);
+          body.appendChild(tr);
+        });
+        table.appendChild(body);
+        return table;
+      }
+      form.onsubmit = async function (event) {
+        event.preventDefault();
+        hits.textContent = '';
+        result.className = 'st-result';
+        result.textContent = labels.searching;
+        try {
+          var response = await fetch('/api/sync/search', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin',
+            body: JSON.stringify({ mailbox: document.getElementById('sync-mailbox').value, query: document.getElementById('sync-query').value }),
+          });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) throw new Error(data.error || 'failed');
+          result.textContent = data.items.length
+            ? labels.foundIn + ': ' + (data.folders || []).join(', ')
+            : labels.none;
+          if (data.items.length) hits.appendChild(table(data.items));
+        } catch (error) {
+          result.className = 'st-result bad';
+          result.textContent = error.message;
+        }
+      };
+    })();</script>`, nonce);
+}
+
+export function renderDocumentsPage(
+  lang: Language, nonce: string, version: string, user: { username: string; role: string },
+): string {
+  const d = dict(lang);
+  const s = (key: string): string => escapeHtml(d[key] ?? key);
+  return shell(lang, d['docs.title']!, `
+    <header class="st-header">
+      <div class="st-header-inner">
+        <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
+        <span class="st-crumb">${s('docs.title')} · ${escapeHtml(user.username)}</span>
+        <div class="st-header-actions">
+          <a class="word-btn" href="/settings">${s('nav.settings')}</a>
+          <a class="word-btn" href="/preferences">${s('nav.preferences')}</a>
+          <a class="word-btn" href="/">${s('nav.back')}</a>
+          <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
+          <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="st-main st-users-main">
+      <section class="st-section">
+        <h2>${s('docs.title')}</h2>
+        <p class="st-lede">${s('docs.lede')}</p>
+        <p class="st-help">${s('docs.passwordHint')}</p>
+        <div class="st-foot">
+          <span class="st-result" id="doc-status"></span>
+          <button type="button" class="st-btn" id="doc-index">${s('docs.index')}</button>
+        </div>
+      </section>
+      <section class="st-section">
+        <form class="st-form" id="doc-search">
+          <div class="st-row2">
+            <div class="st-field"><label for="doc-q">${s('docs.searchPlaceholder')}</label>
+              <input id="doc-q" type="search" autocomplete="off" spellcheck="false"></div>
+            <div class="st-field"><label class="st-toggle"><span class="st-label">${s('docs.onlyBills')}</span><input type="checkbox" id="doc-bills"></label></div>
+          </div>
+        </form>
+        <table class="st-table" id="doc-table">
+          <thead><tr>
+            <th>${s('docs.name')}</th><th>${s('docs.subject')}</th><th>${s('docs.sender')}</th>
+            <th>${s('docs.date')}</th><th>${s('docs.pages')}</th><th>${s('docs.amount')}</th><th>${s('docs.due')}</th>
+          </tr></thead>
+          <tbody><tr><td colspan="7">${s('docs.none')}</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+    <dialog class="st-dialog" id="doc-dialog">
+      <form method="dialog">
+        <div class="st-dialog-head"><h2 id="doc-dialog-title"></h2></div>
+        <div class="st-dialog-body"><pre class="st-code" id="doc-dialog-text" style="white-space:pre-wrap;max-height:60vh;overflow:auto"></pre></div>
+        <div class="st-dialog-foot"><span class="st-spacer"></span><button class="st-btn primary" value="close">${s('docs.close')}</button></div>
+      </form>
+    </dialog>
+    <script nonce="${nonce}">${storeLanguageScript()}
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      var labels = {
+        none: ${JSON.stringify(s('docs.none'))},
+        locked: ${JSON.stringify(s('docs.locked'))},
+        noText: ${JSON.stringify(s('docs.noText'))},
+        indexed: ${JSON.stringify(s('docs.indexed'))},
+        left: ${JSON.stringify(s('docs.left'))},
+        indexing: ${JSON.stringify(s('docs.indexing'))},
+      };
+      function cell(text, className) {
+        var td = document.createElement('td');
+        if (className) td.className = className;
+        td.textContent = text == null ? '' : String(text);
+        return td;
+      }
+      function show(document) {
+        var dialog = $('doc-dialog');
+        $('doc-dialog-title').textContent = document.name || document.subject || '';
+        $('doc-dialog-text').textContent = document.text || labels.noText;
+        dialog.showModal();
+      }
+      function render(documents) {
+        var body = $('doc-table').querySelector('tbody');
+        body.textContent = '';
+        if (!documents.length) {
+          var empty = document.createElement('tr');
+          var td = cell(labels.none);
+          td.colSpan = 7;
+          empty.appendChild(td);
+          body.appendChild(empty);
+          return;
+        }
+        documents.forEach(function (document) {
+          var tr = document.createElement('tr');
+          tr.style.cursor = 'pointer';
+          tr.appendChild(cell((document.bill ? '🧾 ' : '') + (document.name || '') + (document.error === 'password' ? ' 🔒' : '')));
+          tr.appendChild(cell(document.subject || ''));
+          tr.appendChild(cell(document.senderName || document.sender || ''));
+          tr.appendChild(cell((document.mailDate || '').slice(0, 10)));
+          tr.appendChild(cell(document.pages || '', 'num'));
+          tr.appendChild(cell(document.amount || '', 'num'));
+          tr.appendChild(cell(document.dueDate || '', 'num'));
+          tr.onclick = function () {
+            show({ name: document.name, subject: document.subject, text: document.error === 'password' ? labels.locked + ' — ' + labels.noText : document.text });
+          };
+          body.appendChild(tr);
+        });
+      }
+      async function load() {
+        var q = $('doc-q').value.trim();
+        var bills = $('doc-bills').checked ? '1' : '0';
+        var response = await fetch('/api/documents?q=' + encodeURIComponent(q) + '&bills=' + bills, { credentials: 'same-origin' });
+        var data = await response.json().catch(function () { return {}; });
+        if (response.ok) render(data.documents || []);
+      }
+      async function indexAll() {
+        var button = $('doc-index');
+        var status = $('doc-status');
+        button.disabled = true;
+        status.className = 'st-result';
+        var total = 0;
+        for (var round = 0; round < 60; round += 1) {
+          status.textContent = labels.indexing;
+          var response = await fetch('/api/documents/index', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: '{}' });
+          var data = await response.json().catch(function () { return {}; });
+          if (!response.ok) { status.textContent = data.error || 'failed'; status.className = 'st-result bad'; break; }
+          total += data.indexed || 0;
+          status.textContent = labels.indexed.replace('{n}', String(total)) + ' · ' + labels.left.replace('{n}', String(data.remaining || 0));
+          if (!data.remaining || (!data.indexed && !data.failed)) break;
+        }
+        status.className = 'st-result ok';
+        button.disabled = false;
+        await load();
+      }
+      $('doc-index').onclick = indexAll;
+      $('doc-search').onsubmit = function (event) { event.preventDefault(); load(); };
+      $('doc-bills').onchange = load;
+      $('doc-q').addEventListener('input', function () { clearTimeout(window.__docTimer); window.__docTimer = setTimeout(load, 250); });
+      load();
+    })();</script>`, nonce);
+}
 
 const SETTINGS_SCRIPT = String.raw`
 (function () {

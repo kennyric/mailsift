@@ -111,7 +111,12 @@ export function runtimeFingerprintFor(
   const setup = [...users]
     .sort((a, b) => a.userID.localeCompare(b.userID))
     .map(({ userID, doc }) => [userID, Boolean(doc.setupCompletedAt)]);
-  return JSON.stringify({ values: sortedValues(shared), accounts, setup });
+  // Personal overrides (digest hour, push level, rules, quiet hours) change
+  // what the runtime does, so they belong in the restart fingerprint too.
+  const profiles = [...users]
+    .sort((a, b) => a.userID.localeCompare(b.userID))
+    .map(({ userID, doc }) => [userID, Object.entries(doc.values).sort(([a], [b]) => a.localeCompare(b))]);
+  return JSON.stringify({ values: sortedValues(shared), accounts, setup, profiles });
 }
 
 /** The legacy single-document fingerprint, used by unit tests. */

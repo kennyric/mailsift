@@ -37,7 +37,7 @@ import {
 import { retryAttempts } from './services/delivery.js';
 import { HEARTBEAT_KEY, IDLE_WAKE_KEY, type PollStats } from './services/watcher.js';
 import { PushDispatcher } from './services/push-dispatcher.js';
-import { listUsers, userCredentialMarks } from './services/settings-store.js';
+import { listUsers, readSettingsFor, userCredentialMarks } from './services/settings-store.js';
 import { publicAsset, routeWeb, webRateLimited, webUiEnabled } from './web.js';
 import { userSessionOf } from './admin-api.js';
 import { APP_VERSION } from './version.js';
@@ -2205,6 +2205,17 @@ export function createServer(
  * mailboxes are being checked and no check has finished for three intervals;
  * waiting for setup is a healthy state.
  */
+/** A person's quiet window, when both ends are valid HH:MM. */
+function quietWindow(values: Record<string, string>): { start: number; end: number } | undefined {
+  const parse = (value: string | undefined): number | undefined => {
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec((value ?? '').trim());
+    return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
+  };
+  const start = parse(values['QUIET_HOURS_START']);
+  const end = parse(values['QUIET_HOURS_END']);
+  return start !== undefined && end !== undefined ? { start, end } : undefined;
+}
+
 export function healthReport(): { status: 'ok' | 'stale'; mode: string; version: string; boot: string; lastPollAt?: string } {
   const base = { mode: serverMode(), version: APP_VERSION, boot: bootId() };
   if (serverMode() !== 'running') return { status: 'ok', ...base };
@@ -2471,7 +2482,12 @@ export async function startMcpHttp(
           pruning.close();
         }
       }
-      const dispatcher = new PushDispatcher({ notify, openStore: () => new StateStore(storePathFor(user.id)) });
+      const quietHours = quietWindow(readSettingsFor(user.id).values);
+      const dispatcher = new PushDispatcher({
+        notify,
+        openStore: () => new StateStore(storePathFor(user.id)),
+        ...(quietHours ? { quietHours } : {}),
+      });
       dispatcher.start();
       dispatchers.push(dispatcher);
     }

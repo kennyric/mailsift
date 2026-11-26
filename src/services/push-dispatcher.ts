@@ -351,6 +351,17 @@ export interface PushDispatcherOptions {
   notify?: boolean;
   /** How often reminders are looked for; a whole minute, on the minute, unless a test says otherwise. */
   wakeEveryMs?: number;
+  /** Minutes since midnight during which browser notifications are held for this person. */
+  quietHours?: { start: number; end: number };
+}
+
+/** Whether a clock time is inside a quiet window; start === end means no window. */
+export function inQuietHours(window: { start: number; end: number } | undefined, now = new Date()): boolean {
+  if (!window || window.start === window.end) return false;
+  const minute = now.getHours() * 60 + now.getMinutes();
+  return window.start < window.end
+    ? minute >= window.start && minute < window.end
+    : minute >= window.start || minute < window.end;
 }
 
 export class PushDispatcher {
@@ -398,6 +409,9 @@ export class PushDispatcher {
   async tick(force = false): Promise<number> {
     // A slow push service must not let passes pile up behind one another.
     if (this.running) return 0;
+    // Quiet hours hold everything, reminders included: the rows stay pending
+    // and go out on the first pass after the window ends.
+    if (inQuietHours(this.options.quietHours)) return 0;
     this.running = true;
     try {
       const store = this.store ??= (this.options.openStore ?? (() => new StateStore()))();

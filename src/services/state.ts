@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS sent_cursors (
   backfill_below INTEGER NOT NULL DEFAULT 0, backfill_left INTEGER NOT NULL DEFAULT 0, backfill_since TEXT,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS documents (
+  dedup_key TEXT NOT NULL, part_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL DEFAULT '',
+  pages INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '',
+  amount TEXT, due_date TEXT, bill INTEGER NOT NULL DEFAULT 0,
+  subject TEXT, sender TEXT, mail_date TEXT,
+  error TEXT, indexed_at TEXT NOT NULL,
+  PRIMARY KEY (dedup_key, part_id)
+);
+CREATE INDEX IF NOT EXISTS idx_documents_bill ON documents (bill, due_date);
 `;
 
 /**
@@ -155,6 +165,44 @@ export interface MailRecord {
    */
   uid?: number;
   uidValidity?: string;
+}
+
+export interface DocumentRecord {
+  dedupKey: string;
+  partId: string;
+  name: string;
+  mime: string;
+  pages: number;
+  text: string;
+  amount: string | null;
+  dueDate: string | null;
+  bill: boolean;
+  /** Filled for a document indexed from a live search result, where there is no seen row. */
+  subject: string | null;
+  sender: string | null;
+  mailDate: string | null;
+  error: string | null;
+  indexedAt: string;
+}
+
+export interface DocumentListRow extends DocumentRecord {
+  subject: string | null;
+  sender: string | null;
+  senderName: string | null;
+  mailDate: string | null;
+}
+
+export interface PdfCandidate {
+  dedupKey: string;
+  account: string;
+  messageId: string | null;
+  subject: string | null;
+  sender: string | null;
+  mailDate: string | null;
+  folder: string | null;
+  uid: number | null;
+  uidValidity: string | null;
+  items: AttachmentInfo[];
 }
 
 export interface MailRow {
@@ -630,6 +678,25 @@ const ROW_COLUMNS = [
   'decided_by', 'pushed', 'withheld', 'mail_date', 'attachments_json', 'verification_code', 'handled_at', 'snoozed_until', 'created_at',
 ] as const;
 
+function toDocument(row: Record<string, unknown>): DocumentRecord {
+  return {
+    dedupKey: String(row['dedup_key']),
+    partId: String(row['part_id']),
+    name: String(row['name'] ?? ''),
+    mime: String(row['mime'] ?? ''),
+    pages: Number(row['pages'] ?? 0),
+    text: String(row['text'] ?? ''),
+    amount: row['amount'] ? String(row['amount']) : null,
+    dueDate: row['due_date'] ? String(row['due_date']) : null,
+    bill: Number(row['bill'] ?? 0) === 1,
+    subject: row['subject'] ? String(row['subject']) : null,
+    sender: row['sender'] ? String(row['sender']) : null,
+    mailDate: row['mail_date'] ? String(row['mail_date']) : null,
+    error: row['error'] ? String(row['error']) : null,
+    indexedAt: String(row['indexed_at']),
+  };
+}
+
 function parseAttachmentManifest(value: unknown): AttachmentManifest | null {
   if (typeof value !== 'string' || !value) return null;
   try {
@@ -743,6 +810,17 @@ export class StateStore {
       if (seenColumns.some((column) => column['name'] === name)) continue;
       try {
         this.db.exec(`ALTER TABLE seen ADD COLUMN ${name} ${definition}`);
+      } catch (error) {
+        if (!String(error).toLowerCase().includes('duplicate column name')) throw error;
+      }
+    }
+    // Documents indexed from a live search result have no seen row of their own,
+    // so they carry the subject, sender and date themselves.
+    const documentColumns = this.db.prepare('PRAGMA table_info(documents)').all() as Array<Record<string, unknown>>;
+    for (const [name, definition] of [['subject', 'TEXT'], ['sender', 'TEXT'], ['mail_date', 'TEXT']] as const) {
+      if (documentColumns.some((column) => column['name'] === name)) continue;
+      try {
+        this.db.exec(`ALTER TABLE documents ADD COLUMN ${name} ${definition}`);
       } catch (error) {
         if (!String(error).toLowerCase().includes('duplicate column name')) throw error;
       }
@@ -895,6 +973,20 @@ export class StateStore {
       uidValidity: String(row['uid_validity']),
       lastUid: Number(row['last_uid']),
       updatedAt: String(row['updated_at']),
+    }));
+  }
+
+  /** How many triaged messages there are per mailbox and folder, and their date span. */
+  seenCounts(): Array<{ account: string; folder: string; count: number; oldest: string | null; newest: string | null }> {
+    return (
+      this.db.prepare(`SELECT account, folder, COUNT(*) AS n, MIN(mail_date) AS oldest, MAX(mail_date) AS newest
+        FROM seen GROUP BY account, folder ORDER BY account, folder`).all() as unknown as Array<Record<string, unknown>>
+    ).map((row) => ({
+      account: String(row['account']),
+      folder: String(row['folder']),
+      count: Number(row['n']),
+      oldest: row['oldest'] ? String(row['oldest']) : null,
+      newest: row['newest'] ? String(row['newest']) : null,
     }));
   }
 
@@ -2846,6 +2938,97 @@ export class StateStore {
   /** Remove a meta value outright, for a setting that is gone rather than set to nothing. */
   deleteMeta(key: string): void {
     this.db.prepare('DELETE FROM meta WHERE key = ?').run(key);
+  }
+
+
+  // ---- Documents (locally extracted PDF text) ----
+
+  saveDocument(row: DocumentRecord): void {
+    this.db.prepare(`INSERT INTO documents
+      (dedup_key, part_id, name, mime, pages, text, amount, due_date, bill, subject, sender, mail_date, error, indexed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(dedup_key, part_id) DO UPDATE SET
+        name = excluded.name, mime = excluded.mime, pages = excluded.pages, text = excluded.text,
+        amount = excluded.amount, due_date = excluded.due_date, bill = excluded.bill,
+        subject = excluded.subject, sender = excluded.sender, mail_date = excluded.mail_date,
+        error = excluded.error, indexed_at = excluded.indexed_at`)
+      .run(row.dedupKey, row.partId, row.name, row.mime, row.pages, row.text, row.amount ?? null,
+        row.dueDate ?? null, row.bill ? 1 : 0, row.subject ?? null, row.sender ?? null,
+        row.mailDate ?? null, row.error ?? null, row.indexedAt);
+  }
+
+  getDocument(dedupKey: string, partId: string): DocumentRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM documents WHERE dedup_key = ? AND part_id = ?')
+      .get(dedupKey, partId) as Record<string, unknown> | undefined;
+    return row ? toDocument(row) : undefined;
+  }
+
+  listDocuments(options: { q?: string; bills?: boolean; limit?: number } = {}): DocumentListRow[] {
+    const q = (options.q ?? '').trim().slice(0, 200);
+    const like = `%${q}%`;
+    const rows = this.db.prepare(`SELECT d.*,
+        COALESCE(s.subject, d.subject) AS subject, COALESCE(s.sender, d.sender) AS sender,
+        s.sender_name AS sender_name, COALESCE(s.mail_date, d.mail_date) AS mail_date
+      FROM documents d LEFT JOIN seen s ON s.dedup_key = d.dedup_key
+      WHERE (? = '' OR d.name LIKE ? OR d.text LIKE ? OR COALESCE(s.subject, d.subject) LIKE ? OR COALESCE(s.sender, d.sender) LIKE ?)
+        AND (? = 0 OR d.bill = 1)
+      ORDER BY COALESCE(s.mail_date, d.mail_date, d.indexed_at) DESC LIMIT ?`)
+      .all(q, like, like, like, like, options.bills ? 1 : 0, Math.max(1, Math.min(options.limit ?? 100, 500))) as unknown as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      ...toDocument(row),
+      subject: row['subject'] ? String(row['subject']) : null,
+      sender: row['sender'] ? String(row['sender']) : null,
+      senderName: row['sender_name'] ? String(row['sender_name']) : null,
+      mailDate: row['mail_date'] ? String(row['mail_date']) : null,
+    }));
+  }
+
+  documentText(dedupKey: string, partId: string): string | undefined {
+    const row = this.db.prepare('SELECT text FROM documents WHERE dedup_key = ? AND part_id = ?')
+      .get(dedupKey, partId) as { text: string } | undefined;
+    return row?.text;
+  }
+
+  /** Messages with PDF parts, newest first, for the indexer to work through. */
+  pdfCandidates(limit = 100): PdfCandidate[] {
+    const rows = this.db.prepare(`SELECT dedup_key, account, message_id, subject, sender, mail_date, folder,
+        uid, uid_validity, attachments_json
+      FROM seen WHERE attachments_json IS NOT NULL AND attachments_json LIKE '%pdf%'
+      ORDER BY mail_date DESC LIMIT ?`).all(Math.max(1, Math.min(limit, 500))) as unknown as Array<Record<string, unknown>>;
+    const out: PdfCandidate[] = [];
+    for (const row of rows) {
+      const manifest = parseAttachmentManifest(row['attachments_json']);
+      if (!manifest) continue;
+      const items = manifest.items.filter((item) =>
+        item.contentType.toLowerCase().includes('pdf') || (item.filename ?? '').toLowerCase().endsWith('.pdf'));
+      if (!items.length) continue;
+      out.push({
+        dedupKey: String(row['dedup_key']),
+        account: String(row['account']),
+        messageId: row['message_id'] ? String(row['message_id']) : null,
+        subject: row['subject'] ? String(row['subject']) : null,
+        sender: row['sender'] ? String(row['sender']) : null,
+        mailDate: row['mail_date'] ? String(row['mail_date']) : null,
+        folder: row['folder'] ? String(row['folder']) : null,
+        uid: row['uid'] === null || row['uid'] === undefined ? null : Number(row['uid']),
+        uidValidity: row['uid_validity'] ? String(row['uid_validity']) : null,
+        items,
+      });
+    }
+    return out;
+  }
+
+  /** Forget the PDFs that needed a password, so the next index pass retries them. */
+  clearLockedDocuments(): number {
+    return Number(this.db.prepare("DELETE FROM documents WHERE error = 'password'").run().changes);
+  }
+
+  documentsPending(limit = 1000): number {
+    let pending = 0;
+    for (const candidate of this.pdfCandidates(limit)) {
+      for (const item of candidate.items) if (!this.getDocument(candidate.dedupKey, item.partId)) pending += 1;
+    }
+    return pending;
   }
 
   /**
