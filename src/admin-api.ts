@@ -12,7 +12,10 @@
  * token, shown once in the answer that created it.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
+import { createRequire } from 'node:module';
+import { basename, dirname, extname, join } from 'node:path';
 import { ConfigError, mailboxAccount, PROVIDER_PRESETS, type AuthKind } from './config.js';
 import {
   authorizedScope, authorizedUsernames, buildTokenRecord, exchangeCode, getOAuthProvider, TokenStore,
@@ -64,6 +67,31 @@ import { json, rateWindow, readCookie, readJson, type WebResponse } from './web-
 import type { Language } from './web-strings.js';
 
 const log = getLogger('settings');
+
+/**
+ * PDF.js is what renders a statement in the browser. Its own files are served
+ * from the installed package, so the page needs no bundler, no CDN and no
+ * network beyond this server.
+ */
+const pdfjsRoot = (() => {
+  try {
+    return dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+  } catch {
+    return '';
+  }
+})();
+
+function pdfjsAssetPath(assetPath: string): string | undefined {
+  if (!pdfjsRoot) return undefined;
+  if (assetPath === '/assets/pdfjs/pdf.mjs') return join(pdfjsRoot, 'build', 'pdf.min.mjs');
+  if (assetPath === '/assets/pdfjs/pdf.worker.mjs') return join(pdfjsRoot, 'build', 'pdf.worker.min.mjs');
+  const match = /^\/assets\/pdfjs\/(standard_fonts|cmaps)\/([A-Za-z0-9_.-]+)$/.exec(assetPath);
+  if (!match) return undefined;
+  const name = match[2]!;
+  // One plain file name, never a path that could walk out of the package.
+  if (name.startsWith('.') || basename(name) !== name) return undefined;
+  return join(pdfjsRoot, match[1]!, name);
+}
 
 export const ADMIN_COOKIE = 'mailsift_admin';
 const ADMIN_MAX_AGE = 30 * 24 * 60 * 60;
@@ -127,7 +155,9 @@ function htmlPage(body: string, nonce: string, theme: 'light' | 'dark' = 'light'
     cacheControl: 'no-store',
     headers: {
       'content-security-policy': [
-        "default-src 'none'", `script-src 'nonce-${nonce}'`, "style-src 'unsafe-inline'", "img-src 'self' data:",
+        "default-src 'none'", `script-src 'self' 'nonce-${nonce}'`, "style-src 'unsafe-inline'", "img-src 'self' data:",
+        // PDF.js fetches its standard fonts and character maps from this server.
+        "font-src 'self' data: blob:", "worker-src 'self' blob:",
         "connect-src 'self'", "manifest-src 'self'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
       ].join('; '),
       'x-frame-options': 'DENY',
@@ -662,7 +692,8 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   const isPage = PAGES.has(path) && (req.method === 'GET' || req.method === 'HEAD');
   const isSyncSearch = path === '/api/sync/search';
   const isDocuments = path === '/api/documents' || path.startsWith('/api/documents/');
-  if (!isPage && !path.startsWith('/api/admin/') && !isSyncSearch && !isDocuments) return undefined;
+  const pdfjsAsset = pdfjsAssetPath(path);
+  if (!isPage && !pdfjsAsset && !path.startsWith('/api/admin/') && !isSyncSearch && !isDocuments) return undefined;
   const lang = ctx.lang;
   const zh = lang === 'zh-CN';
 
@@ -726,6 +757,24 @@ export async function routeAdmin(req: IncomingMessage, url: URL, ctx: AdminConte
   }
 
   if (!ctx.user) return fail(401, 'admin_required', zh ? '请先登录。' : 'Sign in first.');
+
+  if (pdfjsAsset) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return fail(405, 'method', zh ? '不支持这个请求。' : 'That method is not supported.');
+    }
+    try {
+      const body = await readFile(pdfjsAsset);
+      return {
+        status: 200,
+        body,
+        contentType: extname(pdfjsAsset) === '.mjs' ? 'text/javascript; charset=utf-8' : 'application/octet-stream',
+        cacheControl: 'private, max-age=86400',
+        headers: { 'x-content-type-options': 'nosniff' },
+      };
+    } catch {
+      return fail(404, 'not_found', zh ? '找不到这个资源。' : 'That file is not available.');
+    }
+  }
 
   if (path === '/api/documents' && req.method === 'GET') {
     const store = new StateStore(storePathFor(ctx.user.id));

@@ -74,6 +74,7 @@ const EN: Dict = {
   'docs.wrongPassword': 'That password did not open the file.',
   'docs.openTab': 'Open in a new tab',
   'docs.pdfFailed': 'This document could not be shown. Try opening it in a new tab.',
+  'docs.loadingPdf': 'Loading the PDF…',
   'docs.showDismissed': 'Show dismissed',
   'docs.addTitle': 'Add a message',
   'docs.addHint': 'Search a mailbox for a message whose PDFs were not indexed, then add them here.',
@@ -416,6 +417,7 @@ const ZH: Dict = {
   'docs.wrongPassword': '这个密码打不开文件。',
   'docs.openTab': '在新标签页打开',
   'docs.pdfFailed': '无法显示这个文档，请尝试在新标签页打开。',
+  'docs.loadingPdf': '正在加载 PDF…',
   'docs.showDismissed': '显示已忽略',
   'docs.addTitle': '添加邮件',
   'docs.addHint': '在邮箱中搜索没有索引 PDF 的邮件，然后在这里添加。',
@@ -1004,7 +1006,7 @@ body{min-height:100vh}
 .doc-bills .st-label{font-size:13px;color:var(--text-2);line-height:1.2}
 .doc-bills input{margin:0}
 .doc-viewer{display:grid;gap:10px;max-height:64vh;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--fill);-webkit-overflow-scrolling:touch}
-.doc-viewer img{display:block;width:100%;height:auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.doc-viewer img,.doc-viewer canvas{display:block;width:100%;height:auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .doc-viewer .st-help{margin:0;padding:24px 18px;text-align:center}
 .doc-dialog .st-dialog-body{padding:10px 14px 14px}
 .doc-add-item{display:grid;gap:3px;padding:10px 2px;border-bottom:1px solid var(--line)}
@@ -1761,6 +1763,7 @@ export function renderDocumentsPage(
         indexing: ${JSON.stringify(s('docs.indexing'))},
         pdf: ${JSON.stringify(s('docs.pdf'))},
         pdfFailed: ${JSON.stringify(s('docs.pdfFailed'))},
+        loadingPdf: ${JSON.stringify(s('docs.loadingPdf'))},
         text: ${JSON.stringify(s('docs.text'))},
         unlock: ${JSON.stringify(s('docs.unlock'))},
         unlocking: ${JSON.stringify(s('docs.unlocking'))},
@@ -1799,25 +1802,105 @@ export function renderDocumentsPage(
         dialog.showModal();
       }
       var unlockTarget = null;
+      var pdfRun = 0;
+      var pdfTask = null;
+      var pdfjsPromise = null;
       function pdfParams(docItem) {
         return 'key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId);
       }
-      function clearPdf() { $('pdf-pages').textContent = ''; }
+      /**
+       * PDF.js, loaded once from this server. Its module is not part of the
+       * page bundle, so it is imported on the first preview and kept after.
+       */
+      function loadPdfjs() {
+        if (!pdfjsPromise) {
+          pdfjsPromise = import('/assets/pdfjs/pdf.mjs').then(function (pdfjs) {
+            pdfjs.GlobalWorkerOptions.workerSrc = '/assets/pdfjs/pdf.worker.mjs';
+            return pdfjs;
+          });
+          pdfjsPromise.catch(function () { pdfjsPromise = null; });
+        }
+        return pdfjsPromise;
+      }
+      function clearPdf() {
+        pdfRun += 1;
+        if (pdfTask) {
+          try { pdfTask.destroy(); } catch (error) { /* already gone */ }
+          pdfTask = null;
+        }
+        $('pdf-pages').textContent = '';
+      }
       function closePdf() { var dialog = $('pdf-dialog'); if (dialog.open) dialog.close(); }
       $('pdf-close').onclick = closePdf;
       $('pdf-dialog').addEventListener('close', clearPdf);
 
       /**
-       * Each page is a PNG rendered by the server at reading resolution. An
-       * iframe around the PDF itself stays blank in several phone browsers,
-       * while plain images work everywhere and can be pinched to zoom.
+       * Render the decrypted PDF in the page itself with PDF.js. A browser's
+       * own PDF plugin cannot be relied on inside a dialog and its iframe is
+       * blank on several phones; a canvas works everywhere.
        */
-      function openPdf(docItem) {
+      async function openPdf(docItem) {
         if (docItem.error === 'password') { openUnlock(docItem); return; }
-        clearPdf();
+        var run = ++pdfRun;
+        var box = $('pdf-pages');
+        box.textContent = '';
+        var status = document.createElement('p');
+        status.className = 'st-help';
+        status.textContent = labels.loadingPdf;
+        box.appendChild(status);
         $('pdf-title').textContent = docItem.name || docItem.subject || labels.pdf;
         $('pdf-tab').href = '/api/documents/pdf?' + pdfParams(docItem);
-        var box = $('pdf-pages');
+        $('pdf-dialog').showModal();
+        try {
+          var response = await fetch('/api/documents/pdf?' + pdfParams(docItem), { credentials: 'same-origin' });
+          if (run !== pdfRun) return;
+          if (response.status === 409) { closePdf(); openUnlock(docItem); return; }
+          if (!response.ok) throw new Error(labels.pdfFailed);
+          var bytes = await response.arrayBuffer();
+          if (run !== pdfRun) return;
+          var pdfjs = await loadPdfjs();
+          if (run !== pdfRun) return;
+          var task = pdfjs.getDocument({
+            data: new Uint8Array(bytes),
+            isEvalSupported: false,
+            standardFontDataUrl: '/assets/pdfjs/standard_fonts/',
+            cMapUrl: '/assets/pdfjs/cmaps/',
+            cMapPacked: true,
+          });
+          pdfTask = task;
+          var pdf = await task.promise;
+          if (run !== pdfRun) return;
+          box.textContent = '';
+          var width = Math.max(240, box.clientWidth - 2);
+          var ratio = Math.min(window.devicePixelRatio || 1, 2);
+          for (var n = 1; n <= pdf.numPages; n += 1) {
+            var page = await pdf.getPage(n);
+            if (run !== pdfRun) return;
+            var viewport = page.getViewport({ scale: (width * ratio) / page.getViewport({ scale: 1 }).width });
+            var canvas = document.createElement('canvas');
+            canvas.className = 'doc-page';
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            canvas.style.width = '100%';
+            canvas.style.height = 'auto';
+            var context = canvas.getContext('2d');
+            if (!context) throw new Error('canvas');
+            box.appendChild(canvas);
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            if (run !== pdfRun) return;
+          }
+        } catch (error) {
+          if (run !== pdfRun) return;
+          showPageImages(docItem, box, run);
+        }
+      }
+
+      /**
+       * If PDF.js cannot run, the server can still render each page to a PNG.
+       * It is slower, but it keeps the document readable instead of a message.
+       */
+      function showPageImages(docItem, box, run) {
+        box.textContent = '';
         var total = Math.max(1, Math.min(Number(docItem.pages) || 1, 80));
         for (var page = 1; page <= total; page += 1) {
           var img = document.createElement('img');
@@ -1826,6 +1909,7 @@ export function renderDocumentsPage(
           img.loading = page === 1 ? 'eager' : 'lazy';
           if (page === 1) {
             img.onerror = function () {
+              if (run !== pdfRun) return;
               box.textContent = '';
               var note = document.createElement('p');
               note.className = 'st-help';
@@ -1835,7 +1919,6 @@ export function renderDocumentsPage(
           }
           box.appendChild(img);
         }
-        $('pdf-dialog').showModal();
       }
 
       function openEmailDoc(docItem) {
