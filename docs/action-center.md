@@ -9,7 +9,10 @@ It has three sections:
   and press the task icon in the action bar, or **Add task** in its details, to
   keep the message key on the task. Ticking a task marks it done; reopening it
   puts it back; deleting is permanent. Click a task to open its detail window,
-  where the title, note, due date and status can be edited.
+  where the title, note, due date and status can be edited. Edits save on a
+  short delay, and the top-right **Done**, a swipe, Escape, the backdrop or
+  opening the linked mail save anything still pending. **Mark done** sits in
+  the same control row as **Delete**.
 - **Waiting for a reply** — sent mail that is the latest message in its thread
   and has waited at least three days. A reply received, or a later message sent
   from any client, removes it from this list.
@@ -17,7 +20,8 @@ It has three sections:
   Marketing/Social categories, whose triage result carried an explicit
   deadline. Each row has a quick **Add task** button and a checkbox; selected
   rows can be turned into tasks together. Opening one goes to the message in
-  the reader.
+  the reader. Once a task keeps that message's key, the mail leaves this list;
+  deleting the task puts it back.
 
 When a task is started from a message, the configured model drafts its title,
 note and explicit due date. The draft is editable, and falls back to the

@@ -2883,6 +2883,19 @@ describe('the parts of the page script', () => {
     }
     expect(() => new Script(clientScript())).not.toThrow();
   });
+
+  it('saves a task as it is edited and on every way out, with done beside delete', () => {
+    const script = clientScript();
+    // Edits settle into a debounced save; Done and every dismissal flush it.
+    expect(script).toContain('const fieldValues = () => JSON.stringify({');
+    expect(script).toContain('timer = setTimeout(() => { timer = 0; void save(); }, 600);');
+    expect(script).toContain('if (taskFlush) ok = await taskFlush();');
+    expect(script).toContain("taskSheet.addEventListener('close', () => {");
+    // The completion control shares the row with Delete, not a separate line.
+    expect(script).toContain('buttons.appendChild(doneLine);');
+    expect(script).toContain('buttons.appendChild(remove);');
+    expect(script).toContain('taskFlush = save;');
+  });
 });
 
 describe('picking many messages in the page', () => {

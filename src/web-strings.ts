@@ -680,6 +680,11 @@ const en = {
   'action.updatedToast': 'Task updated',
   'action.noDue': 'No due date',
   'action.adding': 'Adding…',
+  'action.autoSave': 'Changes save automatically',
+  'action.saving': 'Saving…',
+  'action.saved': 'Saved',
+  'action.saveFailed': 'Could not save the task',
+  'action.titleRequired': 'Add a title first',
 
   // ---- The palette and the keyboard ----
   'palette.title': 'Command palette',
@@ -1399,6 +1404,11 @@ const zhCN: Record<StringKey, string> = {
   'action.updatedToast': '任务已更新',
   'action.noDue': '没有截止日期',
   'action.adding': '正在添加…',
+  'action.autoSave': '修改会自动保存',
+  'action.saving': '正在保存…',
+  'action.saved': '已保存',
+  'action.saveFailed': '任务保存失败',
+  'action.titleRequired': '请先填写标题',
 
   'palette.title': '命令面板',
   'palette.hint': '搜索、跳转或提问…',

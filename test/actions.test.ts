@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import './setup.js';
-import { StateStore } from '../src/services/state.js';
+import { StateStore, type MailRecord } from '../src/services/state.js';
 
 const store = (): StateStore => new StateStore(':memory:');
 
@@ -16,6 +16,29 @@ describe('action centre', { timeout: 20_000 }, () => {
     expect(state.tasksSummary()).toMatchObject({ open: 0, done: 1 });
     expect(state.deleteTask(task.id)).toBe(true);
     expect(state.listTasks()).toEqual([]);
+  });
+
+  it('shows only real deadlines and hides one once a task is made from it', () => {
+    const state = store();
+    const record = (key: string, subject: string, importance: string, fields: Partial<MailRecord> = {}) => {
+      state.markSeen(key, 'me@example.com', subject);
+      state.recordOutcome(key, importance, false, {
+        folder: 'INBOX', sender: key + '@example.com', deadline: '2026-12-01', ...fields,
+      });
+    };
+    record('real', 'Renew the domain', 'warning');
+    record('spam', 'Spam deadline', 'warning', { inSpam: true });
+    record('promo', 'Promo deadline', 'warning', { category: 'Marketing' });
+    record('social', 'Social deadline', 'warning', { category: 'Social' });
+    record('calm', 'Calm note', 'info');
+    expect(state.deadlines().map((row) => row.dedupKey)).toEqual(['real']);
+
+    const task = state.createTask({ title: 'Renew the domain', messageKey: 'real' });
+    expect(state.deadlines()).toEqual([]);
+
+    // Deleting the task puts the mail back among the possible tasks.
+    expect(state.deleteTask(task.id)).toBe(true);
+    expect(state.deadlines().map((row) => row.dedupKey)).toEqual(['real']);
   });
 
   it('finds a sent message still waiting for its first reply', () => {

@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_seen_created ON seen (created_at);
 CREATE INDEX IF NOT EXISTS idx_seen_importance ON seen (importance);
 CREATE INDEX IF NOT EXISTS idx_tasks_status_due ON tasks (status, due_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_message ON tasks (message_key);
 CREATE INDEX IF NOT EXISTS idx_mail_actions_created ON mail_actions (created_at);
 CREATE TABLE IF NOT EXISTS owner_filed (
   dedup_key TEXT PRIMARY KEY, account TEXT NOT NULL, created_at TEXT NOT NULL
@@ -1284,6 +1285,7 @@ export class StateStore {
          AND importance IN ('warning', 'critical')
          AND COALESCE(category, '') NOT IN ('Marketing', 'Social')
          AND deadline IS NOT NULL AND deadline != ''
+         AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.message_key = seen.dedup_key)
        ORDER BY created_at DESC LIMIT ?`,
     ).all(Math.max(1, Math.min(limit, 200))) as Array<Record<string, unknown>>).map(toRow);
   }

@@ -12,6 +12,9 @@ const actionPeek = $('#action-peek'), actionBadge = $('#actions-count');
 let actionLoading = false;
 let taskDraft = null;
 let taskSuggestSeq = 0;
+// Set while a task detail is open; it saves the latest edits and resolves true
+// when there is nothing left unsaved.
+let taskFlush = null;
 const selectedDeadlines = new Set();
 let bulkAddButton = null;
 
@@ -303,62 +306,128 @@ function openTaskDetail(task) {
   due.type = 'datetime-local';
   due.value = localDueInput(task.dueAt);
   due.setAttribute('aria-label', t('action.due'));
+
+  const status = el('p', 'action-detail-status', t('action.autoSave'));
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  const buttons = el('div', 'action-detail-actions');
+  // Done sits with Delete, so the whole task can be settled without leaving
+  // the row of controls; edits save by themselves underneath.
   const done = el('input');
   done.type = 'checkbox';
   done.checked = task.status === 'done';
-  const doneLine = el('label', 'action-detail-check');
-  doneLine.append(done, el('span', null, t('action.markDone')));
-  const buttons = el('div', 'action-detail-actions');
-  const save = el('button', 'primary-action', t('action.saveTask'));
-  save.type = 'submit';
+  done.setAttribute('aria-label', t('action.markDone'));
+  const doneText = el('span', null, done.checked ? t('action.done') : t('action.markDone'));
+  const doneLine = el('label', 'action-detail-check' + (done.checked ? ' on' : ''));
+  doneLine.append(done, doneText);
+  buttons.appendChild(doneLine);
+
   const remove = el('button', 'text-btn danger', t('action.delete'));
   remove.type = 'button';
+  let closed = false;
+  let timer = 0;
   remove.onclick = async () => {
     remove.disabled = true;
+    if (timer) { clearTimeout(timer); timer = 0; }
+    closed = true;
+    taskFlush = null;
     const answer = await post('/api/tasks/delete', { id: task.id });
-    if (!answer.ok) toast((answer.data && answer.data.error) || t('error.taskFailed'), true);
-    else {
+    if (!answer.ok) {
+      remove.disabled = false;
+      closed = false;
+      taskFlush = save;
+      toast((answer.data && answer.data.error) || t('error.taskFailed'), true);
+    } else {
+      // The sheet's close handler redraws the list underneath.
       closeSheet(taskSheet, false);
-      if (actionSheet.open) drawActionCenter();
     }
   };
-  buttons.append(save, remove);
+  buttons.appendChild(remove);
+
+  const dueIso = () => {
+    if (!due.value) return '';
+    const date = new Date(due.value);
+    return Number.isNaN(date.valueOf()) ? '' : date.toISOString();
+  };
+  const fieldValues = () => JSON.stringify({
+    title: title.value.trim(),
+    notes: notes.value,
+    dueAt: dueIso(),
+    status: done.checked ? 'done' : 'open',
+  });
+  let saved = fieldValues();
+  let chain = Promise.resolve(true);
+  const setStatus = (text, cls) => {
+    if (closed) return;
+    status.textContent = text;
+    status.className = 'action-detail-status' + (cls ? ' ' + cls : '');
+  };
+  const save = () => {
+    if (timer) { clearTimeout(timer); timer = 0; }
+    if (fieldValues() === saved) return chain;
+    if (!title.value.trim()) {
+      setStatus(t('action.titleRequired'), 'err');
+      return Promise.resolve(false);
+    }
+    chain = chain.then(async () => {
+      const latest = fieldValues();
+      if (latest === saved) return true;
+      if (!title.value.trim()) {
+        setStatus(t('action.titleRequired'), 'err');
+        return false;
+      }
+      setStatus(t('action.saving'), 'reading');
+      const answer = await post('/api/tasks/update', Object.assign({ id: task.id }, JSON.parse(latest)));
+      if (!answer.ok) {
+        setStatus(t('action.saveFailed'), 'err');
+        return false;
+      }
+      saved = latest;
+      // Edited again while the request was in flight: the pending debounce
+      // saves those next, so leave the "saving" note in place.
+      if (fieldValues() === latest) setStatus(t('action.saved'), 'ok');
+      return true;
+    });
+    return chain;
+  };
+  const schedule = () => {
+    if (closed) return;
+    setStatus(t('action.saving'), 'reading');
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = 0; void save(); }, 600);
+  };
+  for (const input of [title, notes, due]) input.addEventListener('input', schedule);
+  done.addEventListener('change', () => {
+    doneText.textContent = done.checked ? t('action.done') : t('action.markDone');
+    doneLine.classList.toggle('on', done.checked);
+    schedule();
+  });
+  taskFlush = save;
+
   if (task.messageKey) {
     const open = el('button', 'text-btn', t('action.openMessage'));
     open.type = 'button';
-    open.onclick = () => {
+    open.onclick = async () => {
+      open.disabled = true;
+      const ok = await save();
+      if (!ok) { open.disabled = false; return; }
+      closed = true;
+      taskFlush = null;
       closeSheet(taskSheet, false);
       if (actionSheet.open) closeSheet(actionSheet, false);
       openFromLink(task.messageKey, false);
     };
     buttons.appendChild(open);
   }
+
   form.append(
     detailField(t('action.taskTitle'), title),
     detailField(t('action.notes'), notes),
     detailField(t('action.due'), due),
-    doneLine,
     buttons,
+    status,
   );
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    if (!title.value.trim()) { title.focus(); return; }
-    save.disabled = true;
-    const answer = await post('/api/tasks/update', {
-      id: task.id,
-      title: title.value,
-      notes: notes.value,
-      dueAt: due.value ? new Date(due.value).toISOString() : '',
-      status: done.checked ? 'done' : 'open',
-    });
-    save.disabled = false;
-    if (!answer.ok) toast((answer.data && answer.data.error) || t('error.taskFailed'), true);
-    else {
-      toast(t('action.updatedToast'));
-      closeSheet(taskSheet, false);
-      if (actionSheet.open) drawActionCenter();
-    }
-  };
+  form.onsubmit = (event) => { event.preventDefault(); void save(); };
   taskBody.appendChild(form);
   openSheet(taskSheet, { hash: '#task=' + task.id });
 }
@@ -382,7 +451,32 @@ for (const dialog of [actionSheet, taskSheet]) {
   });
   enableDrag(dialog);
 }
+// Every way out of the task detail — Done, a swipe, the backdrop, Escape or
+// opening the linked mail — saves what is still in the fields. The request
+// outlives the dialog, and the list underneath is redrawn once it lands.
+taskSheet.addEventListener('close', () => {
+  const flush = taskFlush;
+  taskFlush = null;
+  const redraw = () => {
+    if (actionSheet.open && !actionSheet.classList.contains('closing')) drawActionCenter();
+  };
+  if (!flush) {
+    redraw();
+    return;
+  }
+  void Promise.resolve(flush()).then(redraw);
+});
 const taskDone = $('#task-done');
-if (taskDone) taskDone.onclick = () => closeSheet(taskSheet, false);
+if (taskDone) taskDone.onclick = async () => {
+  if (taskDone.disabled) return;
+  taskDone.disabled = true;
+  let ok = true;
+  try {
+    if (taskFlush) ok = await taskFlush();
+  } finally {
+    taskDone.disabled = false;
+  }
+  if (ok) closeSheet(taskSheet, false);
+};
 `;
 }
