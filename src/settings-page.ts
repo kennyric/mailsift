@@ -977,7 +977,7 @@ body{min-height:100vh}
 .st-pill.warn{background:color-mix(in srgb,var(--warning) 18%,var(--surface));color:var(--warning-text)}
 .st-pill.off{background:var(--fill);color:var(--muted)}
 .st-link{border:0;background:none;padding:4px 2px;color:var(--accent);font:inherit;font-size:13px;cursor:pointer}
-.st-link:hover{text-decoration:underline}
+@media(hover:hover){.st-link:hover{text-decoration:underline}}
 .st-link.danger{color:var(--critical-text)}
 .st-more{border-top:1px solid var(--line);padding-top:12px}
 .st-more>summary{cursor:pointer;color:var(--text-2);font-size:14px;font-weight:600;list-style:none;display:flex;align-items:center;gap:6px}
@@ -1015,9 +1015,21 @@ body{min-height:100vh}
 .doc-search-box input{width:100%;min-height:42px;padding:9px 14px 9px 40px;border:1px solid var(--line);border-radius:11px;background:var(--fill);color:var(--text);font:inherit;font-size:14px;transition:border-color .12s,box-shadow .12s,background .12s}
 .doc-search-box input::placeholder{color:var(--muted)}
 .doc-search-box input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);background:var(--surface)}
-.doc-bills{flex:0 0 auto;align-items:center;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
-.doc-bills .st-label{font-size:13px;color:var(--text-2);line-height:1.2}
-.doc-bills input{margin:0}
+.doc-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:0 0 auto}
+.doc-chip{position:relative;display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 12px;
+border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;
+line-height:1;cursor:pointer;user-select:none;-webkit-user-select:none;transition:border-color .12s,background .12s,color .12s}
+.doc-chip input{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}
+.doc-chip::before{content:"";flex:none;width:14px;height:14px;border:1.5px solid var(--line-strong);border-radius:4px;
+display:grid;place-items:center;color:transparent;font-size:10px;line-height:1;font-weight:800}
+.doc-chip.on{border-color:var(--accent);background:var(--accent-tint);color:var(--accent)}
+.doc-chip.on::before{content:"✓";border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
+.doc-chip:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+#add-message{margin:0 0 18px;padding:0;border:1px solid var(--line);border-top:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+#add-message>summary{padding:12px 14px;color:var(--text)}
+#add-message[open]>summary{border-bottom:1px solid var(--line)}
+#add-message>.st-form{padding:14px;margin-top:0}
+#add-message .st-help{margin:0 0 2px}
 .doc-tools{display:flex;align-items:center;gap:8px;padding:0 20px 10px;flex-wrap:wrap}
 .doc-tool{display:inline-flex;align-items:center;justify-content:center;min-width:38px;min-height:34px;padding:4px 10px;font-size:15px;font-weight:600;line-height:1;text-decoration:none}
 .doc-tool-icon{padding:0}
@@ -1026,7 +1038,7 @@ body{min-height:100vh}
 .doc-zoom:hover{background:var(--fill)}
 .doc-tools .st-spacer{flex:1}
 .doc-dialog .st-dialog-head h2{overflow-wrap:anywhere;line-height:1.3}
-.doc-viewer{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-height:60vh;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--fill);-webkit-overflow-scrolling:touch}
+.doc-viewer{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-height:60vh;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:11px;background:var(--fill);-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
 .doc-viewer img,.doc-viewer canvas{display:block;width:100%;height:auto;margin:0 auto;border-radius:6px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .doc-viewer .st-help{margin:0;padding:24px 18px;text-align:center}
 .doc-dialog .st-dialog-body{padding:10px 14px 14px}
@@ -1040,6 +1052,10 @@ body{min-height:100vh}
 .doc-add-item .st-link{padding:3px 0;text-align:left}
 .doc-actions .st-btn{flex:0 0 auto}
 @media(max-width:700px){
+  #add-message .st-row2{grid-template-columns:minmax(0,1fr);gap:14px}
+  #add-message .st-foot{justify-content:stretch}
+  #add-message .st-foot .st-result{flex:1 1 100%}
+  #add-message .st-foot .st-btn{flex:1 1 100%}
   .doc-dialog{width:calc(100vw - 12px);max-height:calc(100vh - 16px)}
   .doc-dialog .st-dialog-head{padding:12px 14px 4px}
   .doc-dialog .st-dialog-head h2{font-size:16px}
@@ -1054,8 +1070,10 @@ body{min-height:100vh}
   .doc-actions .st-btn{flex:1 1 0;min-width:0}
   #doc-table thead{display:none}
   #doc-table,#doc-table tbody,#doc-table tr,#doc-table td{display:block;width:auto}
-  #doc-table tr{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px}
-  #doc-table td{border:0;padding:3px 0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;text-align:right}
+  #doc-table tr{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin:0 0 8px}
+  #doc-table td{border:0;padding:2.5px 0;display:flex;justify-content:space-between;align-items:baseline;gap:12px;text-align:right}
+  #doc-table,#doc-table *{text-decoration:none}
+  @media(hover:hover){#doc-table .st-link:hover{text-decoration:underline}}
   #doc-table td::before{content:attr(data-label);color:var(--muted);font-size:12px;font-weight:600;text-align:left;flex:0 0 auto}
   #doc-table td.doc-file{display:block;text-align:left;font-weight:600;font-size:15px;padding:0 0 6px;line-height:1.35;overflow-wrap:anywhere}
   #doc-table td.doc-file::before{content:none}
@@ -1712,8 +1730,10 @@ export function renderDocumentsPage(
             <svg class="doc-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
             <input id="doc-q" type="search" placeholder="${s('docs.searchPlaceholder')}" aria-label="${s('docs.searchPlaceholder')}" autocomplete="off" spellcheck="false">
           </label>
-          <label class="st-toggle doc-bills"><span class="st-label">${s('docs.onlyBills')}</span><input type="checkbox" id="doc-bills" role="switch"></label>
-          <label class="st-toggle doc-bills"><span class="st-label">${s('docs.showDismissed')}</span><input type="checkbox" id="doc-dismissed" role="switch"></label>
+          <div class="doc-filters">
+            <label class="doc-chip"><input type="checkbox" id="doc-bills"><span>${s('docs.onlyBills')}</span></label>
+            <label class="doc-chip"><input type="checkbox" id="doc-dismissed"><span>${s('docs.showDismissed')}</span></label>
+          </div>
         </form>
         <details class="st-more" id="add-message">
           <summary>${s('docs.addTitle')}</summary>
@@ -1849,7 +1869,8 @@ export function renderDocumentsPage(
       var pdfTask = null;
       var pdfjsPromise = null;
       var pdfView = null;
-      var ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5];
+      var ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+      var MAX_ZOOM = 3;
       function pdfParams(docItem) {
         return 'key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId);
       }
@@ -1869,16 +1890,17 @@ export function renderDocumentsPage(
       }
       function setZoomControls(active) {
         var scale = pdfView ? pdfView.scale : 1;
-        var index = ZOOM_STEPS.indexOf(scale);
-        if (index < 0) index = ZOOM_STEPS.indexOf(1);
-        $('pdf-zoom-out').disabled = !active || index <= 0;
-        $('pdf-zoom-in').disabled = !active || index >= ZOOM_STEPS.length - 1;
+        $('pdf-zoom-out').disabled = !active || scale <= ZOOM_STEPS[0] + 0.001;
+        $('pdf-zoom-in').disabled = !active || scale >= MAX_ZOOM - 0.001;
         $('pdf-zoom-reset').disabled = !active;
         $('pdf-zoom-reset').textContent = Math.round(scale * 100) + '%';
       }
+      function fullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
+      }
       function pdfFullscreenActive() {
         var dialog = $('pdf-dialog');
-        return document.fullscreenElement === dialog || dialog.classList.contains('doc-full');
+        return Boolean(fullscreenElement()) || dialog.classList.contains('doc-full');
       }
       function updatePdfFullscreenButton() {
         var active = pdfFullscreenActive();
@@ -1891,10 +1913,22 @@ export function renderDocumentsPage(
         button.setAttribute('title', label);
         button.setAttribute('aria-pressed', active ? 'true' : 'false');
       }
+      function syncPdfFullscreen() {
+        var dialog = $('pdf-dialog');
+        if (!dialog) return;
+        if (fullscreenElement()) dialog.classList.add('doc-full');
+        else dialog.classList.remove('doc-full');
+        updatePdfFullscreenButton();
+      }
+      async function exitPdfFullscreen() {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (!exit) return;
+        try { await exit.call(document); } catch (error) { /* already out */ }
+      }
       async function togglePdfFullscreen() {
         var dialog = $('pdf-dialog');
-        if (document.fullscreenElement === dialog) {
-          try { await document.exitFullscreen(); } catch (error) { /* already out */ }
+        if (fullscreenElement()) {
+          await exitPdfFullscreen();
           return;
         }
         if (dialog.classList.contains('doc-full')) {
@@ -1902,32 +1936,37 @@ export function renderDocumentsPage(
           updatePdfFullscreenButton();
           return;
         }
-        if (dialog.requestFullscreen) {
+        var root = document.documentElement;
+        var request = root.requestFullscreen || root.webkitRequestFullscreen;
+        if (request) {
           try {
-            await dialog.requestFullscreen();
-            updatePdfFullscreenButton();
+            // A dialog element is refused by some browsers; the whole document
+            // is accepted everywhere element fullscreen works. The dialog then
+            // fills that screen through doc-full.
+            await request.call(root);
+            syncPdfFullscreen();
             return;
           } catch (error) {
-            // A phone browser may refuse element fullscreen; fill the window instead.
+            // No native fullscreen (often an iPhone): fill the window instead.
           }
         }
         dialog.classList.add('doc-full');
         updatePdfFullscreenButton();
       }
       $('pdf-fullscreen').onclick = togglePdfFullscreen;
-      document.addEventListener('fullscreenchange', updatePdfFullscreenButton);
+      document.addEventListener('fullscreenchange', syncPdfFullscreen);
+      document.addEventListener('webkitfullscreenchange', syncPdfFullscreen);
 
       function clearPdf() {
         pdfRun += 1;
         pdfView = null;
+        pinch = null;
         if (pdfTask) {
           try { pdfTask.destroy(); } catch (error) { /* already gone */ }
           pdfTask = null;
         }
         var dialog = $('pdf-dialog');
-        if (document.fullscreenElement === dialog) {
-          document.exitFullscreen().catch(function () { /* already out */ });
-        }
+        if (fullscreenElement()) exitPdfFullscreen();
         dialog.classList.remove('doc-full');
         updatePdfFullscreenButton();
         $('pdf-pages').textContent = '';
@@ -1982,20 +2021,69 @@ export function renderDocumentsPage(
 
       async function zoomTo(scale) {
         if (!pdfView) return;
-        pdfView.scale = scale;
-        $('pdf-zoom-reset').textContent = Math.round(scale * 100) + '%';
+        var next = Math.min(MAX_ZOOM, Math.max(ZOOM_STEPS[0], scale));
+        if (Math.abs(next - pdfView.scale) < 0.005) { setZoomControls(true); return; }
+        pdfView.scale = next;
+        $('pdf-zoom-reset').textContent = Math.round(next * 100) + '%';
         await paintPdf();
       }
       function stepZoom(direction) {
         if (!pdfView) return;
-        var index = ZOOM_STEPS.indexOf(pdfView.scale);
-        if (index < 0) index = ZOOM_STEPS.indexOf(1);
-        var next = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, index + direction))];
-        if (next !== pdfView.scale) zoomTo(next);
+        var next;
+        if (direction > 0) {
+          next = ZOOM_STEPS.find(function (step) { return step > pdfView.scale + 0.001; });
+        } else {
+          next = ZOOM_STEPS.slice().reverse().find(function (step) { return step < pdfView.scale - 0.001; });
+        }
+        if (next !== undefined) zoomTo(next);
       }
       $('pdf-zoom-out').onclick = function () { stepZoom(-1); };
       $('pdf-zoom-in').onclick = function () { stepZoom(1); };
       $('pdf-zoom-reset').onclick = function () { if (pdfView && pdfView.scale !== 1) zoomTo(1); };
+
+      // Pinch scales the canvases immediately, then re-renders them at the
+      // final size when the fingers lift, so the text ends up sharp.
+      var pinch = null;
+      function pinchDistance(touches) {
+        var dx = touches[0].clientX - touches[1].clientX;
+        var dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+      function previewZoom(scale) {
+        if (!pdfView) return;
+        var value = Math.min(MAX_ZOOM, Math.max(ZOOM_STEPS[0], scale));
+        pdfView.pendingScale = value;
+        for (var i = 0; i < pdfView.pages.length; i += 1) {
+          pdfView.pages[i].canvas.style.width = (value * 100) + '%';
+        }
+        $('pdf-zoom-reset').textContent = Math.round(value * 100) + '%';
+        $('pdf-zoom-out').disabled = true;
+        $('pdf-zoom-in').disabled = true;
+      }
+      function finishPinch() {
+        if (!pinch) return;
+        pinch = null;
+        var value = pdfView && pdfView.pendingScale;
+        if (pdfView) pdfView.pendingScale = 0;
+        if (value && Math.abs(value - (pdfView ? pdfView.scale : 1)) > 0.005) zoomTo(value);
+        else setZoomControls(true);
+      }
+      var pdfBox = $('pdf-pages');
+      pdfBox.addEventListener('touchstart', function (event) {
+        if (!pdfView || event.touches.length !== 2) return;
+        event.preventDefault();
+        pinch = { distance: Math.max(1, pinchDistance(event.touches)), scale: pdfView.scale };
+      }, { passive: false });
+      pdfBox.addEventListener('touchmove', function (event) {
+        if (!pinch || !pdfView || event.touches.length !== 2) return;
+        event.preventDefault();
+        var ratio = pinchDistance(event.touches) / pinch.distance;
+        previewZoom(pinch.scale * ratio);
+      }, { passive: false });
+      pdfBox.addEventListener('touchend', function (event) {
+        if (event.touches.length < 2) finishPinch();
+      }, { passive: true });
+      pdfBox.addEventListener('touchcancel', finishPinch, { passive: true });
 
       async function openPdf(docItem) {
         if (docItem.error === 'password') { openUnlock(docItem); return; }
@@ -2278,8 +2366,14 @@ export function renderDocumentsPage(
       $('doc-index').onclick = function () { indexAll(false); };
       $('doc-retry').onclick = function () { indexAll(true); };
       $('doc-search').onsubmit = function (event) { event.preventDefault(); load(); };
-      $('doc-bills').onchange = load;
-      $('doc-dismissed').onchange = load;
+      function syncDocFilter(input) {
+        var chip = input.closest('.doc-chip');
+        if (chip) chip.classList.toggle('on', input.checked);
+      }
+      $('doc-bills').onchange = function () { syncDocFilter(this); load(); };
+      $('doc-dismissed').onchange = function () { syncDocFilter(this); load(); };
+      syncDocFilter($('doc-bills'));
+      syncDocFilter($('doc-dismissed'));
       $('doc-q').addEventListener('input', function () { clearTimeout(window.__docTimer); window.__docTimer = setTimeout(load, 250); });
 
       function addPdfs(item) {
