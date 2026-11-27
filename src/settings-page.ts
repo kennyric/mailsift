@@ -936,7 +936,9 @@ body{min-height:100vh}
 .st-header-actions{margin-left:auto;display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none}
 .st-header-actions::-webkit-scrollbar{display:none}
 .st-header-actions .word-btn{text-decoration:none;display:inline-grid;white-space:nowrap;flex:none}
-.st-back{font-size:22px;line-height:1;min-width:34px;padding:0 4px}
+.st-back{font-size:20px;line-height:1;min-width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--fill);color:var(--text);display:inline-grid;place-items:center;text-decoration:none;flex:none}
+.st-back:hover{background:var(--fill-2);color:var(--text)}
+.st-back-lead{margin-right:2px}
 .st-signout{margin:0;display:contents}
 .st-banner{width:min(1080px,calc(100% - 32px));margin:12px auto 0;padding:10px 14px;border-radius:10px;background:var(--accent-tint);color:var(--text);font-size:14px}
 .st-banner.warn{background:color-mix(in srgb,var(--warning) 16%,var(--surface))}
@@ -1707,11 +1709,11 @@ export function renderDocumentsPage(
   return shell(lang, d['docs.title']!, `
     <header class="st-header">
       <div class="st-header-inner">
+        <a class="word-btn st-back st-back-lead" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">←</a>
         <a class="brand" href="/"><img class="brand-mark" src="/icon-192.png?v=3" alt="" aria-hidden="true"><strong>mailsift</strong></a>
         <span class="st-crumb">${s('docs.title')} · ${escapeHtml(user.username)}</span>
         <div class="st-header-actions">
           <a class="word-btn" href="/settings">${s('nav.settings')}</a>
-          <a class="word-btn st-back" href="/" aria-label="${s('nav.back')}" title="${s('nav.back')}">‹</a>
           <button type="button" class="word-btn" id="lang">${s('lang.face')}</button>
           <form method="post" action="/auth/signout" class="st-signout"><button type="submit" class="word-btn">${s('nav.signout')}</button></form>
         </div>
@@ -1873,7 +1875,7 @@ export function renderDocumentsPage(
       var pdfTask = null;
       var pdfjsPromise = null;
       var pdfView = null;
-      var ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+      var ZOOM_STEPS = [1, 1.25, 1.5, 2, 2.5, 3];
       var MAX_ZOOM = 3;
       function pdfParams(docItem) {
         return 'key=' + encodeURIComponent(docItem.dedupKey) + '&part=' + encodeURIComponent(docItem.partId);
