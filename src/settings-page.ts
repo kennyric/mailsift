@@ -1045,8 +1045,10 @@ display:grid;place-items:center;color:transparent;font-size:10px;line-height:1;f
 .doc-viewer .st-help{margin:0;padding:24px 18px;text-align:center}
 .doc-dialog .st-dialog-body{padding:10px 14px 14px}
 #pdf-dialog:fullscreen,#pdf-dialog.doc-full{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:100vh;margin:0;padding:0;border:0;border-radius:0;overflow:hidden;display:flex;flex-direction:column}
-#pdf-dialog:fullscreen .st-dialog-body,#pdf-dialog.doc-full .st-dialog-body{flex:1;min-height:0;overflow:hidden}
-#pdf-dialog:fullscreen .doc-viewer,#pdf-dialog.doc-full .doc-viewer{flex:1;max-height:none;min-height:0}
+#pdf-dialog:fullscreen .st-dialog-body,#pdf-dialog.doc-full .st-dialog-body{flex:1;min-height:0;overflow:hidden;padding:0}
+#pdf-dialog:fullscreen .doc-viewer,#pdf-dialog.doc-full .doc-viewer{flex:1;max-height:none;min-height:0;padding:0;border:0;border-radius:0;gap:0}
+#pdf-dialog:fullscreen .doc-viewer img,#pdf-dialog:fullscreen .doc-viewer canvas,
+#pdf-dialog.doc-full .doc-viewer img,#pdf-dialog.doc-full .doc-viewer canvas{border-radius:0;box-shadow:none}
 .doc-add-item{display:grid;gap:3px;padding:10px 2px;border-bottom:1px solid var(--line)}
 .doc-add-item:first-child{border-top:1px solid var(--line)}
 .doc-add-meta{color:var(--muted);font-size:12px}
