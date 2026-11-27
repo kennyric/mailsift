@@ -958,9 +958,11 @@ body{min-height:100vh}
 .st-field>label,.st-label{font-size:14px;font-weight:600;color:var(--text)}
 .st-help{margin:0;color:var(--muted);font-size:12.5px;line-height:1.5;max-width:62ch}
 .st-error{margin:0;color:var(--critical-text);font-size:12.5px}
-.st-input,.st-field input[type=text],.st-field input[type=password],.st-field input[type=url],.st-field input[type=email],.st-field input[type=number],.st-field select,.st-field textarea{
+.st-input,.st-field input[type=text],.st-field input[type=search],.st-field input[type=password],.st-field input[type=url],.st-field input[type=email],.st-field input[type=number],.st-field select,.st-field textarea{
   width:100%;min-height:40px;padding:8px 11px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-size:14px}
 .st-field textarea{min-height:76px;resize:vertical;line-height:1.5}
+.st-field input[type=search]{appearance:none;-webkit-appearance:none}
+.st-field input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .st-field input:focus,.st-field select:focus,.st-field textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
 .st-field.bad input,.st-field.bad select,.st-field.bad textarea{border-color:var(--critical)}
 .st-field input::placeholder,.st-field textarea::placeholder{color:var(--muted);opacity:.75}
