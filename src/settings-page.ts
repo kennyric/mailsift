@@ -1988,7 +1988,7 @@ export function renderDocumentsPage(
        * with CSS, so zooming in makes the text sharper, not blurrier. Past
        * 100% the page is wider than the dialog and can be panned.
        */
-      async function paintPdf() {
+      async function paintPdf(anchor) {
         var view = pdfView;
         if (!view) return false;
         var serial = ++view.serial;
@@ -2011,7 +2011,8 @@ export function renderDocumentsPage(
             await item.page.render({ canvasContext: context, viewport: viewport }).promise;
           }
           if (view !== pdfView || view.serial !== serial) return false;
-          box.scrollTop = keep * Math.max(0, box.scrollHeight - box.clientHeight);
+          if (anchor) applyPdfAnchor(anchor, view.scale);
+          else box.scrollTop = keep * Math.max(0, box.scrollHeight - box.clientHeight);
           setZoomControls(true);
           return true;
         } catch (error) {
@@ -2021,13 +2022,22 @@ export function renderDocumentsPage(
         }
       }
 
-      async function zoomTo(scale) {
+      async function zoomTo(scale, anchor) {
         if (!pdfView) return;
+        var current = pdfView.scale;
         var next = Math.min(MAX_ZOOM, Math.max(ZOOM_STEPS[0], scale));
-        if (Math.abs(next - pdfView.scale) < 0.005) { setZoomControls(true); return; }
+        if (Math.abs(next - current) < 0.005) { setZoomControls(true); return; }
+        if (!anchor) {
+          var middle = viewerOrigin();
+          anchor = pdfContentAnchor(
+            middle.left + middle.track / 2,
+            middle.top + middle.box.clientHeight / 2,
+            current,
+          );
+        }
         pdfView.scale = next;
         $('pdf-zoom-reset').textContent = Math.round(next * 100) + '%';
-        await paintPdf();
+        await paintPdf(anchor);
       }
       function stepZoom(direction) {
         if (!pdfView) return;
@@ -2044,19 +2054,67 @@ export function renderDocumentsPage(
       $('pdf-zoom-reset').onclick = function () { if (pdfView && pdfView.scale !== 1) zoomTo(1); };
 
       // Pinch scales the canvases immediately, then re-renders them at the
-      // final size when the fingers lift, so the text ends up sharp.
+      // final size when the fingers lift, so the text ends up sharp. The
+      // content under the midpoint of the fingers stays under them.
       var pinch = null;
       function pinchDistance(touches) {
         var dx = touches[0].clientX - touches[1].clientX;
         var dy = touches[0].clientY - touches[1].clientY;
         return Math.sqrt(dx * dx + dy * dy);
       }
-      function previewZoom(scale) {
+      function pinchMidpoint(touches) {
+        return {
+          x: (touches[0].clientX + touches[1].clientX) / 2,
+          y: (touches[0].clientY + touches[1].clientY) / 2,
+        };
+      }
+      /** The visible part of the scroll box, in client coordinates. */
+      function viewerOrigin() {
+        var box = $('pdf-pages');
+        var rect = box.getBoundingClientRect();
+        var style = getComputedStyle(box);
+        var left = parseFloat(style.paddingLeft) || 0;
+        var right = parseFloat(style.paddingRight) || 0;
+        var top = parseFloat(style.paddingTop) || 0;
+        return {
+          box: box,
+          left: rect.left + left,
+          top: rect.top + top,
+          track: box.clientWidth - left - right,
+        };
+      }
+      /**
+       * A point on the page, in scale-1 page coordinates, and the client point
+       * it should stay under. A page narrower than the viewer is centred, so
+       * that offset is part of the mapping.
+       */
+      function pdfContentAnchor(clientX, clientY, scale) {
+        var view = viewerOrigin();
+        var inset = Math.max(0, (view.track - view.track * scale) / 2);
+        return {
+          x: (clientX - view.left - inset + view.box.scrollLeft) / scale,
+          y: (clientY - view.top + view.box.scrollTop) / scale,
+          clientX: clientX,
+          clientY: clientY,
+        };
+      }
+      function applyPdfAnchor(anchor, scale) {
+        var view = viewerOrigin();
+        var inset = Math.max(0, (view.track - view.track * scale) / 2);
+        view.box.scrollLeft = anchor.x * scale - (anchor.clientX - view.left - inset);
+        view.box.scrollTop = anchor.y * scale - (anchor.clientY - view.top);
+      }
+      function previewZoom(scale, clientX, clientY) {
         if (!pdfView) return;
         var value = Math.min(MAX_ZOOM, Math.max(ZOOM_STEPS[0], scale));
         pdfView.pendingScale = value;
         for (var i = 0; i < pdfView.pages.length; i += 1) {
           pdfView.pages[i].canvas.style.width = (value * 100) + '%';
+        }
+        if (pinch) {
+          pinch.anchor.clientX = clientX;
+          pinch.anchor.clientY = clientY;
+          applyPdfAnchor(pinch.anchor, value);
         }
         $('pdf-zoom-reset').textContent = Math.round(value * 100) + '%';
         $('pdf-zoom-out').disabled = true;
@@ -2064,23 +2122,30 @@ export function renderDocumentsPage(
       }
       function finishPinch() {
         if (!pinch) return;
+        var anchor = pinch.anchor;
         pinch = null;
         var value = pdfView && pdfView.pendingScale;
         if (pdfView) pdfView.pendingScale = 0;
-        if (value && Math.abs(value - (pdfView ? pdfView.scale : 1)) > 0.005) zoomTo(value);
+        if (value && Math.abs(value - (pdfView ? pdfView.scale : 1)) > 0.005) zoomTo(value, anchor);
         else setZoomControls(true);
       }
       var pdfBox = $('pdf-pages');
       pdfBox.addEventListener('touchstart', function (event) {
         if (!pdfView || event.touches.length !== 2) return;
         event.preventDefault();
-        pinch = { distance: Math.max(1, pinchDistance(event.touches)), scale: pdfView.scale };
+        var middle = pinchMidpoint(event.touches);
+        pinch = {
+          distance: Math.max(1, pinchDistance(event.touches)),
+          scale: pdfView.scale,
+          anchor: pdfContentAnchor(middle.x, middle.y, pdfView.scale),
+        };
       }, { passive: false });
       pdfBox.addEventListener('touchmove', function (event) {
         if (!pinch || !pdfView || event.touches.length !== 2) return;
         event.preventDefault();
+        var middle = pinchMidpoint(event.touches);
         var ratio = pinchDistance(event.touches) / pinch.distance;
-        previewZoom(pinch.scale * ratio);
+        previewZoom(pinch.scale * ratio, middle.x, middle.y);
       }, { passive: false });
       pdfBox.addEventListener('touchend', function (event) {
         if (event.touches.length < 2) finishPinch();
